@@ -6,11 +6,23 @@ Rectangle {
     id: viewport
     color: "#181b20"
 
+    // 鼠标指向的 3D 坐标（底层 GraphicsViewport 悬停拾取后经 QueuedConnection 写回），
+    // 经 Loader 透传给状态栏。空串表示鼠标未命中模型。
+    property string cursorCoordinates: ""
+
     Loader {
         id: loader
         anchors.fill: parent
         // occAvailable 由 main.cpp 注入；避免无 OCCT 构建下解析 CXCAM.Graphics 模块失败
         sourceComponent: occAvailable ? occViewport : placeholder
+    }
+
+    Connections {
+        target: loader.item
+        ignoreUnknownSignals: true
+        function onCursorCoordinatesChanged() {
+            viewport.cursorCoordinates = loader.item ? loader.item.cursorCoordinates : ""
+        }
     }
 
     Component {

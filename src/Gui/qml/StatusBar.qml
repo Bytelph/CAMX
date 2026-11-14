@@ -8,8 +8,12 @@ Rectangle {
     color: Theme.bgPanelAlt
     border.color: Theme.border
 
+    // 由 Main.qml 传入：鼠标指向的 3D 世界坐标（悬停在模型上时更新，空白处为空串）
+    property string cursorCoordinates: ""
+
+    // 左边：鼠标坐标值
     Text {
-        text: "就绪"
+        text: bar.cursorCoordinates
         color: Theme.textDim
         font.pixelSize: 11
         font.family: Theme.fontFamily
@@ -26,16 +30,6 @@ Rectangle {
         font.family: Theme.fontFamily
         anchors.right: parent.right
         anchors.rightMargin: 10
-        anchors.verticalCenter: parent.verticalCenter
-    }
-
-    Text {
-        text: "X: 0.000    Y: 0.000    Z: 0.000"
-        color: Theme.textDim
-        font.pixelSize: 11
-        font.family: Theme.fontFamily
-        anchors.right: unitText.left
-        anchors.rightMargin: 16
         anchors.verticalCenter: parent.verticalCenter
     }
 }

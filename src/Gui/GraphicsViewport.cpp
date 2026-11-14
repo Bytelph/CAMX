@@ -8,27 +8,39 @@
 #include "Graphics/opengl_utils.h"
 
 #include <AIS_Shape.hxx>
+#include <AIS_Trihedron.hxx>
 #include <AIS_ViewCube.hxx>
+#include <Aspect_GradientFillMethod.hxx>
 #include <Aspect_GridType.hxx>
 #include <Aspect_NeutralWindow.hxx>
 #include <Aspect_TypeOfTriedronPosition.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
+#include <Graphic3d_Camera.hxx>
 #include <Graphic3d_TransformPers.hxx>
 #include <Graphic3d_TransModeFlags.hxx>
+#include <Geom_Axis2Placement.hxx>
+#include <gp.hxx>
 #include <NCollection_Vec2.hxx>
 #include <OpenGl_Context.hxx>
 #include <OpenGl_GraphicDriver.hxx>
+#include <Prs3d_DatumAspect.hxx>
+#include <Prs3d_Drawer.hxx>
 #include <Quantity_Color.hxx>
 #include <V3d_TypeOfOrientation.hxx>
 #include <V3d_View.hxx>
 
+#include <QEasingCurve>
+#include <QHoverEvent>
+#include <QMetaObject>
 #include <QMouseEvent>
 #include <QOpenGLContext>
 #include <QOpenGLFramebufferObject>
 #include <QOpenGLFunctions>
+#include <QQuickWindow>
 #include <QSurfaceFormat>
 #include <QWheelEvent>
 
+#include <algorithm>
 #include <cmath>
 
 namespace {
@@ -74,7 +86,12 @@ public:
     void synchronize(QQuickFramebufferObject* item) override
     {
         auto* viewport = static_cast<GraphicsViewport*>(item);
+        m_viewport = viewport;
         m_input = *viewport->m_input;
+        // Qt 鼠标事件是逻辑像素，而 OCCT 视口/FBO 用设备像素（高 DPI 下相差 devicePixelRatio 倍），
+        // 这里读取当前 DPR 供 render() 中的坐标换算使用。
+        if (viewport->window())
+            m_input.devicePixelRatio = viewport->window()->devicePixelRatio();
         viewport->m_input->wheelDelta = 0;   // 消费累计的滚轮增量
     }
 
@@ -98,11 +115,19 @@ public:
 
         Mayo::QtOpenGlUtils::initializeGlFramebufferObject(m_view);
         Mayo::QtOpenGlUtils::resetGlStateBeforeOcct(m_view);
+
+        // 视图切换相机动画（Mayo 式：Graphic3d_CameraLerp + OutExpo 缓动），
+        // 每帧推进一步并触发连续重绘，保证过渡丝滑。
+        if (m_animating)
+            this->advanceCameraAnimation();
         m_view->Redraw();
+
         Mayo::QtOpenGlUtils::resetGlStateAfterOcct(m_view);
 
         if (m_fbo)
             m_fbo->release();
+
+        m_renderedOnce = true;
     }
 
 private:
@@ -124,7 +149,14 @@ private:
             return;
         }
 
-        m_view->SetBackgroundColor(Quantity_Color(1.0f, 1.0f, 1.0f, Quantity_TOC_RGB));
+        // 3D 视口背景：由上至下逐渐变淡、接近白色的纵向渐变。
+        // 顶部颜色与 ribbon 第三行底部一致（#e5ebf2），向下渐变到近白，避免与上方渐变在衔接处出现断层。
+        // OCCT 把背景色当作线性值、显示时再做 sRGB 编码（会变亮），故这里按 sRGB→线性反算。
+        m_view->SetBgGradientColors(
+            Quantity_Color(0.784f, 0.831f, 0.888f, Quantity_TOC_RGB),  // 顶部 #e5ebf2（衔接 ribbon 底部）
+            Quantity_Color(0.956f, 0.965f, 0.982f, Quantity_TOC_RGB),  // 底部 #fafbfd（接近白色）
+            Aspect_GFM_VER,
+            false);
 
         // 网格（XY 平面矩形网格，原点 0,0，步长 10，线框显示）
         auto viewer = m_scene->v3dViewer();
@@ -136,6 +168,9 @@ private:
 
         // 右上角视图立方体 + 坐标轴（参考 Mayo，使用 OCCT AIS_ViewCube）
         this->addViewCube();
+
+        // 原点坐标系（参考 Mayo 的原点坐标轴 AIS_Trihedron）：X 红 / Y 绿 / Z 蓝的着色三轴
+        this->addOriginTrihedron();
 
         m_view->MustBeResized();
         m_view->Invalidate();
@@ -161,19 +196,100 @@ private:
     // 在视口右上角显示视图立方体（含 XYZ 坐标轴），点击切换视角（参考 Mayo 的 AIS_ViewCube）
     void addViewCube()
     {
-        m_viewCube = Mayo::makeOccHandle<AIS_ViewCube>();
-        m_viewCube->SetSize(80.);
-        m_viewCube->SetFixedAnimationLoop(true);
-        m_viewCube->SetAutoStartAnimation(true);
+        const double dpr = m_input.devicePixelRatio > 0.0 ? m_input.devicePixelRatio : 1.0;
 
-        // 固定在右上角（TriedronPers 模式），离上边/右边各留出 160 像素间距
+        m_viewCube = Mayo::makeOccHandle<AIS_ViewCube>();
+        m_viewCube->SetSize(46. * dpr);
+        m_viewCube->SetFontHeight(10. * dpr);
+        // 视角切换由我们在 tryPickViewCube() 中依据 AIS_ViewCubeOwner 手动完成，
+        // 关掉 cube 在检测/高亮时自动转动相机的行为（参考 Mayo：手动拾取时需关闭自动动画）。
+        m_viewCube->SetAutoStartAnimation(false);
+
+        // 外观对齐 Mayo：浅灰立方体（GRAY75），隐藏 X/Y/Z 轴字母标签（轴颜色本身已标识轴向）
+        m_viewCube->SetBoxColor(Quantity_Color(Quantity_NOC_GRAY75));
+        m_viewCube->SetAxesLabels("", "", "");
+
+        // 三轴配色（对齐 Mayo）：X 红 / Y 绿 / Z 蓝，用 OCCT 命名色 RED2/GREEN2/BLUE2。
+        const Prs3d_DatumParts axisParts[3] = {
+            Prs3d_DatumParts_XAxis, Prs3d_DatumParts_YAxis, Prs3d_DatumParts_ZAxis
+        };
+        const Prs3d_DatumParts arrowParts[3] = {
+            Prs3d_DatumParts_XArrow, Prs3d_DatumParts_YArrow, Prs3d_DatumParts_ZArrow
+        };
+        const Quantity_Color axisColors[3] = {
+            Quantity_Color(Quantity_NOC_RED2),
+            Quantity_Color(Quantity_NOC_GREEN2),
+            Quantity_Color(Quantity_NOC_BLUE2)
+        };
+        // AIS_ViewCube 默认没有自有 DatumAspect（Attributes()->DatumAspect() 为空句柄），
+        // 直接 ->LineAspect()/->ShadingAspect() 会空指针崩溃。必须先复制出自有 datum 外观再着色。
+        m_viewCube->Attributes()->SetOwnDatumAspects();
+        const auto& datum = m_viewCube->Attributes()->DatumAspect();
+        if (!datum.IsNull()) {
+            for (int i = 0; i < 3; ++i) {
+                // 轴本体：优先 ShadingAspect（Mayo 用着色圆柱），同时补 LineAspect 兼容线状轴
+                const auto& axisShading = datum->ShadingAspect(axisParts[i]);
+                if (!axisShading.IsNull())
+                    axisShading->SetColor(axisColors[i]);
+
+                const auto& axisLine = datum->LineAspect(axisParts[i]);
+                if (!axisLine.IsNull())
+                    axisLine->SetColor(axisColors[i]);
+
+                // 箭头锥体
+                const auto& arrowShading = datum->ShadingAspect(arrowParts[i]);
+                if (!arrowShading.IsNull())
+                    arrowShading->SetColor(axisColors[i]);
+            }
+        }
+
+        // 固定在右上角（TriedronPers 模式），离上边/右边各留出 90 逻辑像素间距（按 DPR 换算，同 Mayo）
         m_viewCube->SetTransformPersistence(
             new Graphic3d_TransformPers(
                 Graphic3d_TMF_TriedronPers,
                 Aspect_TOTP_RIGHT_UPPER,
-                Graphic3d_Vec2i(160, 160)));
+                Graphic3d_Vec2i(int(90 * dpr), int(90 * dpr))));
 
         m_scene->addObject(m_viewCube);
+    }
+
+    // 在原点建立坐标系（参考 Mayo 的原点坐标轴 AIS_Trihedron）：X 红 / Y 绿 / Z 蓝的线框三轴，
+    // 无箭头、大小固定不随视图缩放（ZoomPers 变换持久化），标识工件的基准坐标系。
+    void addOriginTrihedron()
+    {
+        const double dpr = m_input.devicePixelRatio > 0.0 ? m_input.devicePixelRatio : 1.0;
+
+        m_originTrihedron = Mayo::makeOccHandle<AIS_Trihedron>(
+            Mayo::makeOccHandle<Geom_Axis2Placement>(gp::XOY()));
+        m_originTrihedron->SetDatumDisplayMode(Prs3d_DM_WireFrame);
+        m_originTrihedron->SetDrawArrows(false);
+        // 大小不随视图缩放：ZoomPers 变换持久化，把三轴锚定在世界原点，长度单位按像素（同 Mayo）。
+        m_originTrihedron->SetTransformPersistence(
+            new Graphic3d_TransformPers(Graphic3d_TMF_ZoomPers, gp_Pnt(0., 0., 0.)));
+        m_originTrihedron->SetSize(40.0 * dpr);   // 像素单位，按 DPR 换算保持逻辑尺寸一致
+
+        // 三轴配色（对齐视图立方体 / Mayo）：X 红 / Y 绿 / Z 蓝，用 OCCT 命名色 RED2/GREEN2/BLUE2。
+        // 线框模式下只画轴线（LineAspect），无箭头故无需给 arrow 着色。
+        const Prs3d_DatumParts axisParts[3] = {
+            Prs3d_DatumParts_XAxis, Prs3d_DatumParts_YAxis, Prs3d_DatumParts_ZAxis
+        };
+        const Quantity_Color axisColors[3] = {
+            Quantity_Color(Quantity_NOC_RED2),
+            Quantity_Color(Quantity_NOC_GREEN2),
+            Quantity_Color(Quantity_NOC_BLUE2)
+        };
+        // AIS_Trihedron 默认没有自有 DatumAspect，需先 SetOwnDatumAspects 再按轴着色（否则空指针崩溃）。
+        m_originTrihedron->Attributes()->SetOwnDatumAspects();
+        const auto& datum = m_originTrihedron->Attributes()->DatumAspect();
+        if (!datum.IsNull()) {
+            for (int i = 0; i < 3; ++i) {
+                const auto& axisLine = datum->LineAspect(axisParts[i]);
+                if (!axisLine.IsNull())
+                    axisLine->SetColor(axisColors[i]);
+            }
+        }
+
+        m_scene->addObject(m_originTrihedron);
     }
 
     // 拾取右上角视图立方体：命中则切换到对应视角并返回 true
@@ -190,11 +306,87 @@ private:
         if (!cubeOwner)
             return false;
 
+        // 参考 Mayo 的 V3dViewCameraAnimation：先记录起始相机，再应用目标视角得到终点相机，
+        // 然后恢复起始相机；随后的过渡由 advanceCameraAnimation() 每帧用
+        // Graphic3d_CameraLerp + OutExpo 缓动插值完成（而不是瞬时的 SetProj）。
+        const bool wasImmediateUpdate = m_view->SetImmediateUpdate(false);
+        m_animStartCamera = Mayo::makeOccHandle<Graphic3d_Camera>();
+        m_animStartCamera->Copy(m_view->Camera());
         m_view->SetProj(cubeOwner->MainOrientation());
         m_view->FitAll(0.1, false);
         m_view->ZFitAll();
-        m_view->Invalidate();
+        m_animEndCamera = Mayo::makeOccHandle<Graphic3d_Camera>();
+        m_animEndCamera->Copy(m_view->Camera());
+        m_view->Camera()->Copy(m_animStartCamera);   // 恢复起始相机，等待逐帧插值
+        m_view->SetImmediateUpdate(wasImmediateUpdate);
+
+        m_animating = true;
+        // 关键：立即把渲染线程自己的进度副本归零。否则本次 render 同帧就会跑 advanceCameraAnimation()，
+        // 而此时 GUI 线程的 startCameraAnimation()（QueuedConnection）还没执行，m_input.cameraAnimProgress
+        // 仍是上一次动画 finished 留下的 1.0 —— 导致首帧直接插值到终点相机，表现为“无过渡直接跳转”。
+        m_input.cameraAnimProgress = 0.0;
+        // 通知 GUI 线程启动 QVariantAnimation 以驱动逐帧重绘。必须走 QueuedConnection 把调用
+        // 排队到 GUI 线程事件循环，绝不能在渲染线程里直接调用 m_viewport->update()（那会造成卡死）。
+        if (m_viewport)
+            QMetaObject::invokeMethod(m_viewport, [vp = m_viewport]() { vp->startCameraAnimation(); }, Qt::QueuedConnection);
         return true;
+    }
+
+    // 悬停拾取：命中视图立方体则高亮对应部位；命中模型则把鼠标处的 3D 世界坐标发回 GUI 线程
+    // 更新状态栏；空白处清空坐标。坐标经 QueuedConnection 写回，避免在渲染线程直接改 GUI 状态。
+    void hoverAt(int px, int py)
+    {
+        m_scene->highlightAt(px, py, m_view);
+        const Mayo::GraphicsOwnerPtr owner = m_scene->currentHighlightedOwner();
+        const auto cubeOwner = Mayo::OccHandle<AIS_ViewCubeOwner>::DownCast(owner);
+
+        QString coord;
+        if (!cubeOwner) {
+            // 命中模型（有检测到的 owner、非空白处）：用 Mayo 的 V3dView_to3dPosition 计算
+            // 鼠标处的 3D 世界坐标（投影到过视图中心、垂直于视线方向的视图平面上），供状态栏
+            // 显示。它比直接读选择器 PickedPoint 更稳：不依赖 MoveTo 是否填充了选择器内部
+            // 拾取表、也不受 clearSelection() 清检测状态的影响。
+            if (!owner.IsNull()) {
+                const gp_Pnt p = Mayo::GraphicsUtils::V3dView_to3dPosition(m_view, px, py);
+                coord = QString("X: %1    Y: %2    Z: %3")
+                            .arg(p.X(), 0, 'f', 3)
+                            .arg(p.Y(), 0, 'f', 3)
+                            .arg(p.Z(), 0, 'f', 3);
+            }
+            // 非视图立方体：清除 MoveTo 触发的动态高亮（模型/坐标轴悬停不高亮）。
+            // 悬停在视图立方体上时不调用 clearSelection —— 保留检测状态，让 AIS_ViewCube
+            // 自动高亮鼠标指向的那个面/方向（AIS_ViewCubeOwner 对应具体朝向）。
+            m_scene->clearSelection();
+        }
+        // 悬停在视图立方体或空白处时 coord 为空 —— 不显示坐标
+
+        if (m_viewport)
+            QMetaObject::invokeMethod(m_viewport, [vp = m_viewport, coord]() {
+                vp->setCursorCoordinates(coord);
+            }, Qt::QueuedConnection);
+    }
+
+    // 视图切换相机动画：每帧推进一次（Mayo 的 V3dViewCameraAnimation::updateCurrentTime 逻辑）。
+    // 进度来自 GUI 线程 QVariantAnimation 写入的 m_input.cameraAnimProgress（已含 OutExpo 缓动），
+    // 这里只负责用 Graphic3d_CameraLerp 在起止相机间插值并每帧 ZFitAll。
+    // 帧节奏完全由 GUI 线程的动画定时器驱动，渲染线程不再自行调度下一帧（那会导致卡死）。
+    void advanceCameraAnimation()
+    {
+        if (!m_animating)
+            return;
+
+        const double t = std::clamp(m_input.cameraAnimProgress, 0.0, 1.0);
+
+        const Graphic3d_CameraLerp lerp(m_animStartCamera, m_animEndCamera);
+        Mayo::OccHandle<Graphic3d_Camera> camera = m_view->Camera();
+        const bool prevImmediateUpdate = m_view->SetImmediateUpdate(false);
+        lerp.Interpolate(t, camera);
+        m_view->SetCamera(camera);
+        m_view->ZFitAll();
+        m_view->SetImmediateUpdate(prevImmediateUpdate);
+
+        if (t >= 1.0)
+            m_animating = false;
     }
 
     void applyNavigation()
@@ -203,31 +395,34 @@ private:
         const bool right = m_input.buttons.testFlag(Qt::RightButton);
         const bool middle = m_input.buttons.testFlag(Qt::MiddleButton);
 
-        const int px = qRound(m_input.pos.x());
-        const int py = qRound(m_input.pos.y());
-        // OCCT 视口像素坐标以左下角为原点（y 向上），而 Qt 鼠标事件以左上角为原点（y 向下），
-        // 必须把 y 翻转后再传给 OCCT，否则平移/旋转/拾取的上下方向都会反。
-        const int occtY = m_size.height() - 1 - py;
+        // Qt 鼠标事件使用逻辑像素，而 OCCT 视口/FBO 使用设备像素（高 DPI 下相差 devicePixelRatio 倍）。
+        // 必须先按 DPR 换算，否则拾取/旋转/平移坐标整体偏移，点击视图立方体将无法命中。
+        const qreal dpr = m_input.devicePixelRatio > 0.0 ? m_input.devicePixelRatio : 1.0;
+        const int px = qRound(m_input.pos.x() * dpr);
+        const int py = qRound(m_input.pos.y() * dpr);
 
         const bool prevLeft = m_prevButtons.testFlag(Qt::LeftButton);
         const bool prevRight = m_prevButtons.testFlag(Qt::RightButton);
         const bool prevMiddle = m_prevButtons.testFlag(Qt::MiddleButton);
 
-        // 左键按下：先尝试拾取右上角视图立方体（点击切换视角），否则进入旋转
+        // 左键按下：先尝试拾取右上角视图立方体（点击切换视角），否则进入旋转。
+        // V3d_View::Convert/StartRotation/Rotation 的像素输入都采用“左上角为原点”（与 Qt 一致），
+        // 因此这里直接传 py，不做 y 翻转（y 翻转会导致视图立方体永远命中不了）。
         if (left && !prevLeft) {
-            m_viewCubeHit = this->tryPickViewCube(px, occtY);
+            m_viewCubeHit = this->tryPickViewCube(px, py);
             if (!m_viewCubeHit)
-                m_view->StartRotation(px, occtY);
+                m_view->StartRotation(px, py);
         }
         else if (left && prevLeft) {
             if (!m_viewCubeHit)
-                m_view->Rotation(px, occtY);
+                m_view->Rotation(px, py);
         }
 
-        // 右键 / 中键：平移（y 差量同样按 OCCT 坐标系取反）
+        // 右键 / 中键：平移。V3d_View::Pan 的 y 差量采用“向上为正”（与 Qt 的向下为正相反），
+        // 故这里对 dy 取反；dx 不需要取反。
         if ((right || middle) && (prevRight || prevMiddle)) {
-            const int dx = px - qRound(m_prevPos.x());
-            const int dy = py - qRound(m_prevPos.y());
+            const int dx = qRound((m_input.pos.x() - m_prevPos.x()) * dpr);
+            const int dy = qRound((m_input.pos.y() - m_prevPos.y()) * dpr);
             m_view->Pan(dx, -dy);
         }
 
@@ -235,6 +430,23 @@ private:
         if (m_input.wheelDelta != 0) {
             const double factor = std::exp(double(m_input.wheelDelta) / 240.0);
             m_view->SetZoom(factor);
+        }
+
+        // 悬停：未按键时高亮命中的视图立方体部位（拾取提示）。
+        // 悬停事件由 hoverEnterEvent/hoverMoveEvent 更新（无按键移动走的是 hover 事件而非 mouseMoveEvent）。
+        // 只在鼠标位置变化时拾取一次，避免每帧反复 MoveTo/ClearDetected ——
+        // 每帧重复拾取会污染 OCCT 的检测/选择状态，渲染阶段会崩溃。
+        if (m_renderedOnce && !left && !right && !middle) {
+            if (m_input.hoverActive) {
+                if (m_input.pos != m_lastHoverPos) {
+                    m_lastHoverPos = m_input.pos;
+                    this->hoverAt(px, py);
+                }
+            }
+            else {
+                // 鼠标已离开视口：清除残留的高亮（坐标文本在 GUI 线程的 hoverLeaveEvent 中清空）
+                m_scene->clearSelection();
+            }
         }
 
         m_prevButtons = m_input.buttons;
@@ -245,9 +457,17 @@ private:
     Mayo::OccHandle<V3d_View> m_view;
     Mayo::OccHandle<AIS_Shape> m_currentShape;
     Mayo::OccHandle<AIS_ViewCube> m_viewCube;
+    Mayo::OccHandle<AIS_Trihedron> m_originTrihedron;
     QSize m_size;
     bool m_initFailed = false;
     bool m_viewCubeHit = false;
+    bool m_renderedOnce = false;
+
+    // 视图切换相机动画（Mayo 式平滑过渡）：起止相机在渲染线程计算，进度由 GUI 线程动画驱动。
+    GraphicsViewport* m_viewport = nullptr;                         // 用于经 QueuedConnection 触发 GUI 线程动画
+    Mayo::OccHandle<Graphic3d_Camera> m_animStartCamera;
+    Mayo::OccHandle<Graphic3d_Camera> m_animEndCamera;
+    bool m_animating = false;
 
     // Qt 场景图持有该 FBO 的所有权（createFramebufferObject 返回值），此处仅保存指针用于在
     // render() 中显式绑定（Qt 6 不会自动绑定，GL_FRAMEBUFFER_BINDING==0 会导致 OCCT FBO 包装失败）。
@@ -256,6 +476,7 @@ private:
     GraphicsViewport::Input m_input;
     Qt::MouseButtons m_prevButtons;
     QPointF m_prevPos;
+    QPointF m_lastHoverPos{-1., -1.};  // 无效哨兵，确保首次进入时执行一次拾取
 };
 
 // ---------------------------------------------------------------------------
@@ -272,6 +493,24 @@ GraphicsViewport::GraphicsViewport(QQuickItem* parent)
     // OCCT 以 OpenGL 约定渲染（原点在左下角），而 Qt Quick 场景图按左上角采样 FBO 纹理，
     // 必须垂直镜像，否则画面上下颠倒（模型、AIS_ViewCube 的 Y 标签等都会反）。
     setMirrorVertically(true);
+
+    // 相机过渡动画（Mayo 式 QtAnimationBackend 的等价实现）：QVariantAnimation 运行在 GUI 线程，
+    // 用 OutExpo 缓动把 0→1 的进度写入 m_input.cameraAnimProgress，每个 valueChanged 触发一次
+    // update() 请求重绘。渲染线程在 render()/advanceCameraAnimation() 中按该进度插值相机，
+    // 这样帧节奏由 GUI 线程事件循环驱动，彻底避免在渲染线程里直接 update() 造成的卡死。
+    m_cameraAnim.setDuration(1000);  // 与 Mayo 默认一致（1 秒）
+    m_cameraAnim.setStartValue(0.0);
+    m_cameraAnim.setEndValue(1.0);
+    m_cameraAnim.setEasingCurve(QEasingCurve(QEasingCurve::OutExpo));
+    QObject::connect(&m_cameraAnim, &QVariantAnimation::valueChanged, this, [this](const QVariant& value) {
+        m_input->cameraAnimProgress = value.toDouble();
+        update();
+    });
+    // 动画结束时把进度补足到 1.0，保证最终相机精确停在目标视角（最后一次 valueChanged 可能略小于 1）
+    QObject::connect(&m_cameraAnim, &QVariantAnimation::finished, this, [this]() {
+        m_input->cameraAnimProgress = 1.0;
+        update();
+    });
 }
 
 GraphicsViewport::~GraphicsViewport() = default;
@@ -279,6 +518,23 @@ GraphicsViewport::~GraphicsViewport() = default;
 QQuickFramebufferObject::Renderer* GraphicsViewport::createRenderer() const
 {
     return new GraphicsViewportRenderer;
+}
+
+void GraphicsViewport::startCameraAnimation()
+{
+    // GUI 线程：重启相机过渡动画（渲染线程拾取到视图立方体后经 QueuedConnection 触发）。
+    // 动画立即把进度归零并重新计时，随后每个 valueChanged 更新进度并请求重绘。
+    m_cameraAnim.stop();
+    m_input->cameraAnimProgress = 0.0;
+    m_cameraAnim.start();
+}
+
+void GraphicsViewport::setCursorCoordinates(const QString& coords)
+{
+    if (m_cursorCoordinates == coords)
+        return;
+    m_cursorCoordinates = coords;
+    emit cursorCoordinatesChanged();
 }
 
 void GraphicsViewport::mousePressEvent(QMouseEvent* event)
@@ -310,4 +566,25 @@ void GraphicsViewport::wheelEvent(QWheelEvent* event)
     m_input->wheelDelta += event->angleDelta().y();
     update();
     event->accept();
+}
+
+void GraphicsViewport::hoverEnterEvent(QHoverEvent* event)
+{
+    m_input->hoverActive = true;
+    m_input->pos = event->position();
+    update();
+}
+
+void GraphicsViewport::hoverMoveEvent(QHoverEvent* event)
+{
+    m_input->hoverActive = true;
+    m_input->pos = event->position();
+    update();
+}
+
+void GraphicsViewport::hoverLeaveEvent(QHoverEvent* event)
+{
+    m_input->hoverActive = false;
+    setCursorCoordinates("");   // 鼠标离开视口：清空状态栏坐标
+    update();
 }

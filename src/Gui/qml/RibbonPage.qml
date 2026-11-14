@@ -25,6 +25,7 @@ Item {
         id: contentRow
         anchors.fill: parent
         anchors.leftMargin: 10
+        anchors.rightMargin: 10
         spacing: 8
 
         Repeater {

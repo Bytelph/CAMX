@@ -11,6 +11,8 @@
         <file>qml/RibbonGroup.qml</file>
         <file>qml/RibbonButton.qml</file>
         <file>qml/RibbonSeparator.qml</file>
+        <file>qml/ToolIcon.qml</file>
+        <file>qml/ToolIconButton.qml</file>
         <file>qml/ProjectPanel.qml</file>
         <file>qml/TreeSection.qml</file>
         <file>qml/TreeRow.qml</file>

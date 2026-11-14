@@ -3,14 +3,23 @@ import QtQuick.Controls
 import QtQuick.Window
 import CXCAM.Theme 1.0
 
-// 工作区 ribbon：顶行 = 应用名 + 标签 + 拖动区 + 窗口控制按钮；下行 = 当前标签的工具组。
+// 工作区 ribbon（现代 Word 风格）：
+//   第一行 = 标题栏（应用名 + 快速操作 + 拖动区 + 窗口控制按钮）
+//   第二行 = 标签栏（菜单，独立于快速操作行）
+//   第三行 = 当前标签的工具组
 // 标签与内容均由下方 tabs 数组驱动，新增标签只需在数组里加一项即可自动扩展。
 Rectangle {
     id: ribbon
     property var target: null
-    height: 160   // 顶行 40 + 内容区 120
-    color: Theme.bgPanel
-    border.color: Theme.border
+    property string projectName: "未命名.ccpj"   // 当前项目名（M0 占位，待 App 文档模块接入后绑定真实项目）
+    property bool collapsed: false               // ribbon 收起/展开：收起时隐藏第三行工具组
+    height: collapsed ? 68 : 188   // 标题栏 40 + 标签栏 28 + 内容区 120（收起时内容区为 0）
+    Behavior on height { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+    // Win11 标题栏风格的清淡纵向渐变（第一二三行共用）
+    gradient: Gradient {
+        GradientStop { position: 0.0; color: "#f7f9fc" }
+        GradientStop { position: 1.0; color: "#e5ebf2" }
+    }
 
     // —— 可扩展标签数据：title = 标签名，groups = 工具组列表 ——
     property var tabs: [
@@ -28,12 +37,7 @@ Rectangle {
             { name: "2.5D", actions: ["面铣", "型腔", "轮廓", "钻孔"] },
             { name: "3D", actions: ["平行", "等高", "环绕", "清根"] }
         ]},
-        { title: "PROBE", groups: [
-            { name: "测点", actions: ["单点", "平面", "圆", "球"] },
-            { name: "找正", actions: ["3-2-1 找正", "基准"] },
-            { name: "输出", actions: ["测量程序", "报告"] }
-        ]},
-        { title: "SIM", groups: [
+        { title: "仿真", groups: [
             { name: "几何仿真", actions: ["开始", "暂停", "重置", "余量分析"] },
             { name: "物理仿真", actions: ["切削力", "变形", "温度"] },
             { name: "检查", actions: ["过切", "碰撞"] }
@@ -53,21 +57,16 @@ Rectangle {
         anchors.fill: parent
         spacing: 0
 
-        // —— 顶行：应用名 + 标签 + 拖动区 + 窗口控制按钮 ——
+        // —— 第一行：标题栏（应用名 + 快速操作 + 拖动区 + 窗口控制按钮）——
         Item {
-            id: topRow
+            id: titleRow
             width: parent.width
             height: 40
-
-            Rectangle {
-                anchors.fill: parent
-                color: Theme.bgPanelAlt
-            }
 
             // 拖动窗口 / 双击最大化。
             // - 非最大化：原生标题栏拖动（含 Aero 吸附）。
             // - 最大化：向下拖 → 恢复窗口并跟随鼠标移动。
-            // （位于标签与按钮之后，只接管空白处）
+            // （位于按钮之后，只接管空白处）
             MouseArea {
                 id: topDrag
                 anchors.fill: parent
@@ -131,11 +130,98 @@ Rectangle {
                 anchors.verticalCenter: parent.verticalCenter
             }
 
+            // —— 快速访问工具栏（QAT）：保存 / 撤销 / 重做 ——
+            Row {
+                id: quickActions
+                anchors.left: logo.right
+                anchors.leftMargin: 8
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 2
+
+                ToolIconButton { icon: "save"; tooltip: "保存"; onClicked: console.log("保存（待接入 App 文档模块）") }
+                ToolIconButton { icon: "undo"; tooltip: "撤销"; onClicked: console.log("撤销（待接入撤销/重做）") }
+                ToolIconButton { icon: "redo"; tooltip: "重做"; onClicked: console.log("重做（待接入撤销/重做）") }
+            }
+
+            // —— 项目名：居中显示（第一行中间）——
+            Text {
+                id: projectNameText
+                text: ribbon.projectName
+                color: Theme.textBright
+                font.pixelSize: 13
+                font.family: Theme.fontFamily
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.verticalCenter: parent.verticalCenter
+            }
+
+            // —— 搜索框：位于窗口控制按钮左侧 ——
+            TextField {
+                id: searchField
+                width: 200
+                height: 28
+                anchors.right: windowButtons.left
+                anchors.rightMargin: 8
+                anchors.verticalCenter: parent.verticalCenter
+                placeholderText: "搜索命令、工具…"
+                placeholderTextColor: Theme.textMuted
+                color: Theme.text
+                font.pixelSize: 12
+                font.family: Theme.fontFamily
+                verticalAlignment: TextInput.AlignVCenter
+                leftPadding: 30
+                rightPadding: 10
+                selectByMouse: true
+
+                background: Rectangle {
+                    radius: 4
+                    color: "#ffffff"
+                    border.color: searchField.activeFocus ? Theme.accent : Theme.borderLight
+                    border.width: 1
+                }
+
+                ToolIcon {
+                    anchors.left: parent.left
+                    anchors.leftMargin: 9
+                    anchors.verticalCenter: parent.verticalCenter
+                    name: "search"
+                    size: 14
+                    color: Theme.textMuted
+                }
+            }
+
+            // 窗口控制按钮
+            Row {
+                id: windowButtons
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+
+                WindowButton {
+                    type: "min"
+                    onClicked: WindowController.minimize(ribbon.target)
+                }
+                WindowButton {
+                    type: (ribbon.target && ribbon.target.visibility === Window.Maximized) ? "restore" : "max"
+                    onClicked: WindowController.toggleMaximize(ribbon.target)
+                }
+                WindowButton {
+                    type: "close"
+                    onClicked: WindowController.close(ribbon.target)
+                }
+            }
+        }
+
+        // —— 第二行：标签栏（菜单，独立于快速操作行）——
+        Item {
+            id: tabRow
+            width: parent.width
+            height: 28
+
             Row {
                 id: tabs
                 property int currentIndex: 0
-                anchors.left: logo.right
-                anchors.leftMargin: 16
+                anchors.left: parent.left
+                anchors.leftMargin: 12
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 2
 
@@ -143,9 +229,9 @@ Rectangle {
                     model: ribbon.tabs
                     Rectangle {
                         width: tabText.implicitWidth + 28
-                        height: 40
+                        height: 28
                         radius: 4
-                        color: index === tabs.currentIndex ? Theme.bg : (tabMouse.containsMouse ? Theme.bgElevated : "transparent")
+                        color: tabMouse.containsMouse ? Theme.bgElevated : "transparent"
                         Behavior on color { ColorAnimation { duration: 120 } }
 
                         Text {
@@ -153,7 +239,7 @@ Rectangle {
                             text: modelData.title
                             color: index === tabs.currentIndex ? Theme.textBright : (tabMouse.containsMouse ? Theme.textBright : Theme.textDim)
                             font.pixelSize: 14
-                            font.bold: true
+                            font.bold: index === tabs.currentIndex
                             font.family: Theme.fontFamily
                             anchors.centerIn: parent
                         }
@@ -179,38 +265,67 @@ Rectangle {
                 }
             }
 
-            // 窗口控制按钮
-            Row {
+            // —— 收起/展开 ribbon 按钮（标签栏最右）——
+            Rectangle {
+                id: collapseBtn
+                width: 30
+                height: 28
+                radius: 4
                 anchors.right: parent.right
-                anchors.top: parent.top
-                anchors.bottom: parent.bottom
+                anchors.rightMargin: 8
+                anchors.verticalCenter: parent.verticalCenter
+                color: collapseMouse.containsMouse ? Theme.bgElevated : "transparent"
+                Behavior on color { ColorAnimation { duration: 120 } }
 
-                WindowButton {
-                    type: "min"
-                    onClicked: WindowController.minimize(ribbon.target)
+                Text {
+                    anchors.centerIn: parent
+                    text: ribbon.collapsed ? "▾" : "▴"
+                    color: collapseMouse.containsMouse ? Theme.textBright : Theme.textDim
+                    font.pixelSize: 11
+                    font.family: Theme.fontFamily
                 }
-                WindowButton {
-                    type: (ribbon.target && ribbon.target.visibility === Window.Maximized) ? "restore" : "max"
-                    onClicked: WindowController.toggleMaximize(ribbon.target)
-                }
-                WindowButton {
-                    type: "close"
-                    onClicked: WindowController.close(ribbon.target)
+
+                ToolTip.visible: collapseMouse.containsMouse
+                ToolTip.text: ribbon.collapsed ? "展开功能区" : "收起功能区"
+                ToolTip.delay: 400
+
+                MouseArea {
+                    id: collapseMouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: ribbon.collapsed = !ribbon.collapsed
                 }
             }
         }
 
-        // —— 内容行：当前标签的工具组（淡入淡出切换）——
+        // —— 第三行：工具组内容区（整条圆角栏，内部工具组保持扁平）——
+        // 高度由 ribbon 总高派生（40 标题栏 + 28 标签栏 = 68），与 ribbon.height 的动画保持同步，
+        // 收起时自然缩到 0，展开时恢复到 120，无需单独的 Behavior。
         Item {
             id: content
             width: parent.width
-            height: 120
+            height: ribbon.height - 68
+            clip: true
 
-            Repeater {
-                model: ribbon.tabs
-                RibbonPage {
-                    current: index === tabs.currentIndex
-                    groups: modelData.groups
+            Rectangle {
+                id: contentBar
+                anchors.fill: parent
+                anchors.leftMargin: 8
+                anchors.rightMargin: 8
+                anchors.topMargin: 6
+                anchors.bottomMargin: 6
+                radius: 10
+                color: "#ffffff"
+                border.color: Theme.borderLight
+                border.width: 1
+
+                Repeater {
+                    model: ribbon.tabs
+                    RibbonPage {
+                        current: index === tabs.currentIndex
+                        groups: modelData.groups
+                    }
                 }
             }
         }
