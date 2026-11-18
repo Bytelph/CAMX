@@ -4,9 +4,7 @@
 
 完整方案见 [`PLAN.md`](PLAN.md)。
 
-## 界面预览
-
-![CXCAM 界面](image/page.png)
+![CXCAM 界面](images/page.png)
 
 ## 目录结构
 
