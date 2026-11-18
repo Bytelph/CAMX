@@ -15,7 +15,7 @@ option(CXCAM_WITH_OCCT    "构建 OpenCASCADE 几何内核与 AIS 渲染" ON)
 option(CXCAM_WITH_OPENVDB "构建 OpenVDB 切削仿真" OFF)
 option(CXCAM_BUILD_TESTS  "构建单元测试" OFF)
 
-find_package(Qt6 REQUIRED COMPONENTS Quick QuickControls2 QuickLayouts OpenGL)
+find_package(Qt6 REQUIRED COMPONENTS Quick QuickControls2 QuickLayouts OpenGL QuickDialogs2)
 
 if(CXCAM_WITH_OCCT)
     # OCCT 安装位置（本机：D:/OCCT/OCCT-install-release）

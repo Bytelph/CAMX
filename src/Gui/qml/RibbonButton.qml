@@ -1,24 +1,31 @@
 import QtQuick
+import QtQuick.Controls
 import CXCAM.Theme 1.0
 
-// ribbon 工具按钮
+// ribbon 工具按钮：仅图标（悬停高亮 + 气泡提示文字）
 Rectangle {
     id: btn
     property string text: ""
+    property string icon: ""
     signal clicked()
 
-    width: 60
-    height: 30
+    width: 40
+    height: 40
     radius: 4
     color: mouse.containsMouse ? Theme.bgElevated : "transparent"
+    Behavior on color { ColorAnimation { duration: 120 } }
 
-    Text {
+    ToolIcon {
         anchors.centerIn: parent
-        text: btn.text
-        color: mouse.containsMouse ? Theme.textBright : Theme.text
-        font.pixelSize: 12
-        font.family: Theme.fontFamily
+        name: btn.icon
+        size: 22
+        color: mouse.containsMouse ? Theme.textBright : Theme.textDim
     }
+
+    ToolTip.visible: mouse.containsMouse && btn.text !== ""
+    ToolTip.text: btn.text
+    ToolTip.delay: 400
+
     MouseArea {
         id: mouse
         anchors.fill: parent

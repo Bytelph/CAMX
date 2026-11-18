@@ -38,6 +38,14 @@ int main(int argc, char** argv) {
     qmlRegisterSingletonType(QUrl(QStringLiteral("qrc:/qml/Theme.qml")),
                              "CXCAM.Theme", 1, 0, "Theme");
 
+    // 窗口管理器单例（QML 中以 WindowManager.openNewWindow() 再开一个文档窗口）
+    qmlRegisterSingletonType(QUrl(QStringLiteral("qrc:/qml/WindowManager.qml")),
+                             "CXCAM.WindowManager", 1, 0, "WindowManager");
+
+    // 消息通知管理器单例（QML 中以 NotificationManager.push(type, title, message) 弹出通知）
+    qmlRegisterSingletonType(QUrl(QStringLiteral("qrc:/qml/NotificationManager.qml")),
+                             "CXCAM.NotificationManager", 1, 0, "NotificationManager");
+
 #ifdef CXCAM_HAS_OCCT
     // OCCT AIS 视口（QQuickFramebufferObject）
     qmlRegisterType<GraphicsViewport>("CXCAM.Graphics", 1, 0, "GraphicsViewport");

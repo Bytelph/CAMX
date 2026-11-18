@@ -2,6 +2,11 @@
     <qresource prefix="/">
         <file>qml/Theme.qml</file>
         <file>qml/Main.qml</file>
+        <file>qml/CxcamWindow.qml</file>
+        <file>qml/WindowManager.qml</file>
+        <file>qml/NotificationManager.qml</file>
+        <file>qml/ToastLayer.qml</file>
+        <file>qml/Toast.qml</file>
         <file>qml/TitleBar.qml</file>
         <file>qml/TextButton.qml</file>
         <file>qml/WindowButton.qml</file>
@@ -18,6 +23,7 @@
         <file>qml/TreeRow.qml</file>
         <file>qml/Viewport.qml</file>
         <file>qml/OccViewport.qml</file>
+        <file>qml/DisplayModeSelector.qml</file>
         <file>qml/StatusBar.qml</file>
     </qresource>
 </RCC>

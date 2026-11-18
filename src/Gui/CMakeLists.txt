@@ -24,6 +24,7 @@ target_link_libraries(cxcam_gui PUBLIC
     Qt6::QuickControls2
     Qt6::QuickLayouts
     Qt6::OpenGL
+    Qt6::QuickDialogs2
 )
 
 # OCCT 渲染（cxcam_graphics 的 PUBLIC 依赖会透传 OCCT include/lib 与链接库）

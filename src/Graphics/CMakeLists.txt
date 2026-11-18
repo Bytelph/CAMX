@@ -63,8 +63,8 @@ foreach(_occt_lib IN ITEMS
         TKBin TKBinL TKBinXCAF TKCAF TKCDF TKLCAF TKVCAF TKXml TKXmlL
         # DataExchange (XCAF)
         TKXCAF TKXmlXCAF
-        # DataExchange (STEP/BRep 读取：TKDE 基类 + TKDESTEP)
-        TKDE TKDESTEP TKXSBase)
+        # DataExchange (STEP/IGES/BRep/STL/OBJ/PLY/VRML 读写)
+        TKDE TKDESTEP TKDEIGES TKDESTL TKDEOBJ TKDEPLY TKDEVRML TKXSBase)
     target_link_libraries(cxcam_graphics PUBLIC "${OCCT_LIBRARY_DIR}/${_occt_lib}.lib")
 endforeach()
 

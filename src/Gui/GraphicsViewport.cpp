@@ -3,18 +3,20 @@
 
 #include "Graphics/base/occ_handle.h"
 #include "Graphics/graphics_create_driver.h"
+#include "Graphics/graphics_display_modes.h"
 #include "Graphics/graphics_scene.h"
+#include "Graphics/graphics_shape_reader.h"
+#include "Graphics/graphics_shape_writer.h"
 #include "Graphics/graphics_utils.h"
 #include "Graphics/opengl_utils.h"
 
+#include <AIS_DisplayMode.hxx>
 #include <AIS_Shape.hxx>
 #include <AIS_Trihedron.hxx>
 #include <AIS_ViewCube.hxx>
 #include <Aspect_GradientFillMethod.hxx>
-#include <Aspect_GridType.hxx>
 #include <Aspect_NeutralWindow.hxx>
 #include <Aspect_TypeOfTriedronPosition.hxx>
-#include <BRepPrimAPI_MakeBox.hxx>
 #include <Graphic3d_Camera.hxx>
 #include <Graphic3d_TransformPers.hxx>
 #include <Graphic3d_TransModeFlags.hxx>
@@ -26,10 +28,12 @@
 #include <Prs3d_DatumAspect.hxx>
 #include <Prs3d_Drawer.hxx>
 #include <Quantity_Color.hxx>
+#include <TDocStd_Document.hxx>
 #include <V3d_TypeOfOrientation.hxx>
 #include <V3d_View.hxx>
 
 #include <QEasingCurve>
+#include <QFileInfo>
 #include <QHoverEvent>
 #include <QMetaObject>
 #include <QMouseEvent>
@@ -42,6 +46,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <exception>
+#include <mutex>
+#include <thread>
+#include <vector>
 
 namespace {
 
@@ -83,6 +91,13 @@ public:
         return m_fbo;
     }
 
+    ~GraphicsViewportRenderer() override
+    {
+        // 回收后台读取线程，避免其在本对象析构后继续访问成员
+        if (m_importThread.joinable())
+            m_importThread.join();
+    }
+
     void synchronize(QQuickFramebufferObject* item) override
     {
         auto* viewport = static_cast<GraphicsViewport*>(item);
@@ -93,6 +108,9 @@ public:
         if (viewport->window())
             m_input.devicePixelRatio = viewport->window()->devicePixelRatio();
         viewport->m_input->wheelDelta = 0;   // 消费累计的滚轮增量
+        viewport->m_input->importPath.clear();   // 消费待导入请求
+        viewport->m_input->exportPath.clear();   // 消费待导出请求
+        viewport->m_input->pendingDisplayMode = -1;   // 消费待切换显示模式请求
     }
 
     void render() override
@@ -105,6 +123,28 @@ public:
 
         if (m_view.IsNull())
             return;
+
+        // 处理「导入模型」请求：把文件读取放到后台线程执行（渲染线程不阻塞），
+        // 这样状态栏进度条（由场景图渲染线程绘制）才能在读取期间持续刷新。
+        if (!m_input.importPath.isEmpty()) {
+            this->startImport(m_input.importPath);
+            m_input.importPath.clear();
+        }
+
+        // 若后台读取已完成，在渲染线程应用解析结果（替换显示几何 / 写回状态栏）
+        this->applyImportResultIfReady();
+
+        // 处理「导出模型」请求：在渲染线程把当前几何写入指定文件
+        if (!m_input.exportPath.isEmpty()) {
+            this->exportFile(m_input.exportPath);
+            m_input.exportPath.clear();
+        }
+
+        // 处理「切换显示模式」请求（QML 下拉框写入，渲染线程应用后回写生效模式）
+        if (m_input.pendingDisplayMode >= 0) {
+            this->applyDisplayModeInternal(m_input.pendingDisplayMode);
+            m_input.pendingDisplayMode = -1;
+        }
 
         this->applyNavigation();
 
@@ -158,14 +198,6 @@ private:
             Aspect_GFM_VER,
             false);
 
-        // 网格（XY 平面矩形网格，原点 0,0，步长 10，线框显示）
-        auto viewer = m_scene->v3dViewer();
-        viewer->SetRectangularGridValues(0., 0., 10., 10., 0.);
-        viewer->ActivateGrid(Aspect_GT_Rectangular, Aspect_GDM_Lines);
-
-        // 初始演示几何：一个立方体，验证 AIS 渲染链路
-        this->setShape(BRepPrimAPI_MakeBox(100., 60., 30.).Shape());
-
         // 右上角视图立方体 + 坐标轴（参考 Mayo，使用 OCCT AIS_ViewCube）
         this->addViewCube();
 
@@ -176,21 +208,284 @@ private:
         m_view->Invalidate();
     }
 
-    // 替换当前显示的几何为指定 shape
+    // 清除当前所有显示对象（并释放 XCAF 文档引用）。
+    void clearCurrentObjects()
+    {
+        for (const auto& object : m_currentObjects) {
+            if (!object.IsNull())
+                m_scene->eraseObject(object);
+        }
+        m_currentObjects.clear();
+        m_document = Mayo::OccHandle<TDocStd_Document>();
+    }
+
+    // 把单个显示对象加入场景并登记（供显示模式切换 / 清除）。
+    void addDisplayObject(const Mayo::GraphicsObjectPtr& object)
+    {
+        if (object.IsNull())
+            return;
+        m_scene->addObject(object);
+        m_currentObjects.push_back(object);
+    }
+
+    // 替换当前显示的几何为指定 shape：按网格型/实体型创建对应的 AIS 显示对象，
+    // 应用默认显示模式，并把生效的模式/类型写回 GUI 线程供下拉框回显。
     void setShape(const TopoDS_Shape& shape)
     {
         if (shape.IsNull())
             return;
 
-        if (!m_currentShape.IsNull())
-            m_scene->eraseObject(m_currentShape);
+        this->clearCurrentObjects();
+        m_currentShape = shape;
+        m_isMesh = Mayo::isMeshShape(shape);
+        this->addDisplayObject(Mayo::createDisplayObject(shape));
+        if (m_currentObjects.empty()) {
+            m_currentShape = TopoDS_Shape();
+            return;
+        }
 
-        m_currentShape = Mayo::makeOccHandle<AIS_Shape>(shape);
-        m_scene->addObject(m_currentShape);
+        // 默认显示模式：实体 → 着色带边；网格 → 着色。同时清掉上一个模型遗留的 HLR 状态。
+        const int defaultMode = m_isMesh
+            ? int(Mayo::DisplayMode::MeshShaded)
+            : int(Mayo::DisplayMode::ShapeShadedWithEdges);
+        this->applyDisplayModeInternal(defaultMode);
 
         m_view->FitAll(0.1, false);
         m_view->ZFitAll();
         m_view->Invalidate();
+    }
+
+    // 替换当前显示的几何为 XCAF 文档（STEP/IGES 路径）：每个顶层自由形状建一个带颜色的
+    // XCAFPrs_AISObject。文档需在本对象生命周期内保持存活（保存于 m_document）。
+    void setDocument(const Mayo::OccHandle<TDocStd_Document>& document, const TopoDS_Shape& wholeShape)
+    {
+        if (document.IsNull())
+            return;
+
+        this->clearCurrentObjects();
+        m_document = document;
+        m_currentShape = wholeShape;
+        m_isMesh = false;
+
+        const std::vector<Mayo::GraphicsObjectPtr> objects = Mayo::createDisplayObjects(document);
+        for (const auto& object : objects)
+            this->addDisplayObject(object);
+        if (m_currentObjects.empty()) {
+            m_document = Mayo::OccHandle<TDocStd_Document>();
+            m_currentShape = TopoDS_Shape();
+            return;
+        }
+
+        const int defaultMode = int(Mayo::DisplayMode::ShapeShadedWithEdges);
+        this->applyDisplayModeInternal(defaultMode);
+
+        m_view->FitAll(0.1, false);
+        m_view->ZFitAll();
+        m_view->Invalidate();
+    }
+
+    // 在渲染线程应用显示模式（int → Mayo::DisplayMode，按对象类型过滤不适用项），
+    // 并把生效后的模式/类型写回 GUI 线程（即使选择不适用也会回写，让下拉框回弹）。
+    void applyDisplayModeInternal(int mode)
+    {
+        if (m_currentObjects.empty())
+            return;
+        if (mode < 0 || mode > int(Mayo::DisplayMode::MeshShrink))
+            return;
+
+        const Mayo::DisplayMode dm = Mayo::DisplayMode(mode);
+        const bool applicable = m_isMesh
+            ? dm >= Mayo::DisplayMode::MeshWireframe
+            : dm <= Mayo::DisplayMode::ShapeShadedWithEdges;
+
+        if (applicable) {
+            for (const auto& object : m_currentObjects)
+                Mayo::applyDisplayMode(object, dm);
+        }
+
+        // 所有显示对象类型一致、模式同步，读取首个对象即可得到生效模式。
+        const int effective = int(Mayo::currentDisplayMode(m_currentObjects.front()));
+        this->reportDisplayMode(effective);
+        this->reportIsMesh(m_isMesh);
+    }
+
+    // 启动后台线程读取模型文件（不阻塞渲染线程）。解析完成后由 applyImportResultIfReady()
+    // 在渲染线程应用结果。支持 STEP/IGES/BRep/STL/OBJ/PLY/VRML（按扩展名自动识别）。
+    void startImport(const QString& path)
+    {
+        // 同一时刻只允许一个导入
+        {
+            std::lock_guard<std::mutex> lock(m_importMutex);
+            if (m_importBusy)
+                return;
+            m_importBusy = true;
+            m_importReady = false;
+        }
+
+        // 一次性捕获工作线程所需数据（m_viewport 在渲染线程写入，拷贝出来避免数据竞争）
+        GraphicsViewport* viewport = m_viewport;
+        // OCCT 7.8 的窄字符文件 API 在 Windows 下期望 UTF-8（内部经 _wfopen 转 UTF-16），
+        // 故用 toUtf8()；用 toLocal8Bit()（GBK）会导致含中文的路径被误判为无效 UTF-8 而打不开文件。
+        const std::string utf8Path = path.toUtf8().toStdString();
+        const QString fileName = QFileInfo(path).fileName();
+
+        // 上一轮导入线程（若尚未回收）先回收
+        if (m_importThread.joinable())
+            m_importThread.join();
+
+        m_importThread = std::thread([this, viewport, utf8Path, fileName]() {
+            TopoDS_Shape shape;
+            Mayo::OccHandle<TDocStd_Document> document;
+            std::string error;
+            try {
+                const Mayo::ShapeFormat format = Mayo::shapeFormatFromFileName(utf8Path);
+                // 进度回调运行在后台线程：经 QueuedConnection 写回 GUI 线程更新进度条
+                const auto reportProgress = [viewport](double p) {
+                    if (viewport)
+                        QMetaObject::invokeMethod(viewport, [vp = viewport, p]() {
+                            vp->setImportProgress(p);
+                        }, Qt::QueuedConnection);
+                };
+
+                // STEP/IGES 走 XCAF 读取以保留模型原始颜色；其余格式走裸几何读取。
+                if (format == Mayo::ShapeFormat::Step || format == Mayo::ShapeFormat::Iges) {
+                    document = Mayo::ShapeReader::readXcafDocument(
+                        utf8Path, format, &shape, &error, reportProgress);
+                }
+                else {
+                    shape = Mayo::ShapeReader::read(utf8Path, format, &error, reportProgress);
+                }
+            }
+            catch (const std::exception& e) {
+                error = e.what();
+            }
+            catch (...) {
+                error = "未知异常";
+            }
+
+            {
+                std::lock_guard<std::mutex> lock(m_importMutex);
+                m_importedShape = shape;
+                m_importedDocument = document;
+                m_importedError = std::move(error);
+                m_importedFileName = fileName;
+                m_importReady = true;
+            }
+
+            // 请求一次重绘，让渲染线程在下一次 render() 中应用结果
+            if (viewport)
+                QMetaObject::invokeMethod(viewport, [vp = viewport]() {
+                    vp->update();
+                }, Qt::QueuedConnection);
+        });
+    }
+
+    // 渲染线程每帧调用：若后台读取已完成，应用结果并回写状态栏。
+    void applyImportResultIfReady()
+    {
+        TopoDS_Shape shape;
+        Mayo::OccHandle<TDocStd_Document> document;
+        std::string error;
+        QString fileName;
+        {
+            std::lock_guard<std::mutex> lock(m_importMutex);
+            if (!m_importReady)
+                return;
+            shape = m_importedShape;
+            document = m_importedDocument;
+            error = m_importedError;
+            fileName = m_importedFileName;
+            m_importedShape = TopoDS_Shape();   // 释放句柄
+            m_importedDocument = Mayo::OccHandle<TDocStd_Document>();
+            m_importedError.clear();
+            m_importedFileName.clear();
+            m_importReady = false;
+            m_importBusy = false;
+        }
+
+        // 结束后隐藏进度条（成功/失败都先归 -1；结果文字随后由 reportImportStatus 给出）
+        this->reportProgress(-1.0);
+
+        if (document.IsNull() && shape.IsNull()) {
+            const QString msg = QStringLiteral("导入失败：%1（%2）")
+                .arg(fileName, QString::fromStdString(error));
+            qWarning("Model import failed: %s (%s)", qUtf8Printable(fileName), error.c_str());
+            this->reportImportStatus(msg);
+            return;
+        }
+
+        if (!document.IsNull())
+            this->setDocument(document, shape);
+        else
+            this->setShape(shape);
+        this->reportImportStatus(QStringLiteral("已导入：%1").arg(fileName));
+    }
+
+    // 导出当前几何到指定文件（渲染线程内执行），并把结果写回状态栏。
+    void exportFile(const QString& path)
+    {
+        const QString fileName = QFileInfo(path).fileName();
+        if (m_currentShape.IsNull()) {
+            this->reportExportStatus(QStringLiteral("导出失败：没有可导出的模型"));
+            return;
+        }
+
+        std::string error;
+        const bool ok = Mayo::ShapeWriter::write(
+            m_currentShape, path.toUtf8().constData(), &error);
+        if (!ok) {
+            const QString msg = QStringLiteral("导出失败：%1（%2）")
+                .arg(fileName, QString::fromStdString(error));
+            qWarning("Model export failed: %s (%s)", qUtf8Printable(path), error.c_str());
+            this->reportExportStatus(msg);
+            return;
+        }
+        this->reportExportStatus(QStringLiteral("已导出：%1").arg(fileName));
+    }
+
+    // 把导入结果消息跨线程写回 GUI 线程（经 QueuedConnection，避免在渲染线程直接改 QML 属性）
+    void reportImportStatus(const QString& msg)
+    {
+        if (m_viewport)
+            QMetaObject::invokeMethod(m_viewport, [vp = m_viewport, msg]() {
+                vp->setImportStatus(msg);
+            }, Qt::QueuedConnection);
+    }
+
+    // 把导出结果消息跨线程写回 GUI 线程
+    void reportExportStatus(const QString& msg)
+    {
+        if (m_viewport)
+            QMetaObject::invokeMethod(m_viewport, [vp = m_viewport, msg]() {
+                vp->setExportStatus(msg);
+            }, Qt::QueuedConnection);
+    }
+
+    // 把导入进度（-1 = 隐藏，0..1 = 进行中）跨线程写回 GUI 线程，供状态栏进度条显示
+    void reportProgress(qreal p)
+    {
+        if (m_viewport)
+            QMetaObject::invokeMethod(m_viewport, [vp = m_viewport, p]() {
+                vp->setImportProgress(p);
+            }, Qt::QueuedConnection);
+    }
+
+    // 把生效的显示模式跨线程写回 GUI 线程，供显示模式下拉框回显
+    void reportDisplayMode(int mode)
+    {
+        if (m_viewport)
+            QMetaObject::invokeMethod(m_viewport, [vp = m_viewport, mode]() {
+                vp->updateDisplayMode(mode);
+            }, Qt::QueuedConnection);
+    }
+
+    // 把当前模型类型（网格/实体）跨线程写回 GUI 线程
+    void reportIsMesh(bool mesh)
+    {
+        if (m_viewport)
+            QMetaObject::invokeMethod(m_viewport, [vp = m_viewport, mesh]() {
+                vp->updateIsMeshModel(mesh);
+            }, Qt::QueuedConnection);
     }
 
     // 在视口右上角显示视图立方体（含 XYZ 坐标轴），点击切换视角（参考 Mayo 的 AIS_ViewCube）
@@ -453,9 +748,23 @@ private:
         m_prevPos = m_input.pos;
     }
 
+    // 后台模型读取线程及其结果交接（互斥保护）。读取在后台线程执行，渲染线程在
+    // applyImportResultIfReady() 中取走结果并应用到 AIS 场景。
+    std::thread m_importThread;
+    std::mutex m_importMutex;
+    bool m_importBusy = false;
+    bool m_importReady = false;
+    TopoDS_Shape m_importedShape;
+    Mayo::OccHandle<TDocStd_Document> m_importedDocument;   // STEP/IGES 导入的 XCAF 文档（带颜色）
+    std::string m_importedError;
+    QString m_importedFileName;
+
     std::unique_ptr<Mayo::GraphicsScene> m_scene;
     Mayo::OccHandle<V3d_View> m_view;
-    Mayo::OccHandle<AIS_Shape> m_currentShape;
+    TopoDS_Shape m_currentShape;                                // 原始几何（供导出）
+    Mayo::OccHandle<TDocStd_Document> m_document;               // 当前 STEP/IGES 的 XCAF 文档（保活供着色）
+    std::vector<Mayo::GraphicsObjectPtr> m_currentObjects;      // AIS 显示对象（AIS_Shape / MeshVS_Mesh / XCAFPrs_AISObject）
+    bool m_isMesh = false;                          // 当前模型是否为网格型
     Mayo::OccHandle<AIS_ViewCube> m_viewCube;
     Mayo::OccHandle<AIS_Trihedron> m_originTrihedron;
     QSize m_size;
@@ -535,6 +844,78 @@ void GraphicsViewport::setCursorCoordinates(const QString& coords)
         return;
     m_cursorCoordinates = coords;
     emit cursorCoordinatesChanged();
+}
+
+void GraphicsViewport::setImportStatus(const QString& status)
+{
+    if (m_importStatus == status)
+        return;
+    m_importStatus = status;
+    emit importStatusChanged();
+}
+
+void GraphicsViewport::setExportStatus(const QString& status)
+{
+    if (m_exportStatus == status)
+        return;
+    m_exportStatus = status;
+    emit exportStatusChanged();
+}
+
+void GraphicsViewport::setImportProgress(qreal progress)
+{
+    if (m_importProgress == progress)
+        return;
+    m_importProgress = progress;
+    emit importProgressChanged();
+}
+
+void GraphicsViewport::updateDisplayMode(int mode)
+{
+    if (m_displayMode == mode)
+        return;
+    m_displayMode = mode;
+    emit displayModeChanged();
+}
+
+void GraphicsViewport::updateIsMeshModel(bool mesh)
+{
+    if (m_isMeshModel == mesh)
+        return;
+    m_isMeshModel = mesh;
+    emit isMeshModelChanged();
+}
+
+void GraphicsViewport::setDisplayMode(int mode)
+{
+    // QML 下拉框请求切换：写入待处理值并触发渲染线程应用。
+    m_input->pendingDisplayMode = mode;
+    update();
+}
+
+void GraphicsViewport::importFile(const QUrl& url)
+{
+    const QString path = url.toLocalFile();
+    if (path.isEmpty()) {
+        setImportStatus(QStringLiteral("导入失败：无法从 %1 获取本地文件路径").arg(url.toString()));
+        return;
+    }
+    setImportStatus(QStringLiteral("正在导入：%1 …").arg(QFileInfo(path).fileName()));
+    setImportProgress(0.0);   // 立即显示进度条（0），随后渲染线程在读取期间持续更新
+    m_input->importPath = path;
+    update();   // 触发渲染线程在 synchronize() 中读取并解析
+}
+
+void GraphicsViewport::exportFile(const QUrl& url)
+{
+    const QString path = url.toLocalFile();
+    if (path.isEmpty()) {
+        setExportStatus(QStringLiteral("导出失败：无法从 %1 获取本地文件路径").arg(url.toString()));
+        return;
+    }
+    setExportStatus(QStringLiteral("正在导出：%1 …").arg(QFileInfo(path).fileName()));
+    m_input->exportPath = path;
+    update();   // 触发渲染线程在 synchronize() 中读取并写文件
 }
 
 void GraphicsViewport::mousePressEvent(QMouseEvent* event)

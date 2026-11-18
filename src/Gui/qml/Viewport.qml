@@ -10,6 +10,39 @@ Rectangle {
     // 经 Loader 透传给状态栏。空串表示鼠标未命中模型。
     property string cursorCoordinates: ""
 
+    // 最近一次模型导入的结果消息（"已导入：xxx" / "导入失败：…"），透传给状态栏。
+    property string importStatus: ""
+
+    // 最近一次模型导出的结果消息（"已导出：xxx" / "导出失败：…"），透传给状态栏。
+    property string exportStatus: ""
+
+    // 模型导入进度（-1 = 隐藏，0..1 = 进行中），透传给状态栏进度条。
+    property real importProgress: -1
+
+    // 当前显示模式（0..6，对应 Mayo::DisplayMode），由底层 GraphicsViewport 写回，供显示模式下拉框回显。
+    property int displayMode: 0
+
+    // 当前模型是否为网格型（STL/OBJ/PLY 为 true，STEP/IGES/BRep 为 false）。
+    property bool isMeshModel: false
+
+    // 把「导入模型」请求转发给底层 OCCT 视口（占位 Canvas 无此方法时忽略）
+    function importFile(url) {
+        if (loader.item && loader.item.importFile)
+            loader.item.importFile(url)
+    }
+
+    // 把「导出模型」请求转发给底层 OCCT 视口
+    function exportFile(url) {
+        if (loader.item && loader.item.exportFile)
+            loader.item.exportFile(url)
+    }
+
+    // 把「切换显示模式」请求转发给底层 OCCT 视口
+    function setDisplayMode(mode) {
+        if (loader.item && loader.item.setDisplayMode)
+            loader.item.setDisplayMode(mode)
+    }
+
     Loader {
         id: loader
         anchors.fill: parent
@@ -22,6 +55,21 @@ Rectangle {
         ignoreUnknownSignals: true
         function onCursorCoordinatesChanged() {
             viewport.cursorCoordinates = loader.item ? loader.item.cursorCoordinates : ""
+        }
+        function onImportStatusChanged() {
+            viewport.importStatus = loader.item ? loader.item.importStatus : ""
+        }
+        function onExportStatusChanged() {
+            viewport.exportStatus = loader.item ? loader.item.exportStatus : ""
+        }
+        function onImportProgressChanged() {
+            viewport.importProgress = loader.item ? loader.item.importProgress : -1
+        }
+        function onDisplayModeChanged() {
+            viewport.displayMode = loader.item ? loader.item.displayMode : 0
+        }
+        function onIsMeshModelChanged() {
+            viewport.isMeshModel = loader.item ? loader.item.isMeshModel : false
         }
     }
 

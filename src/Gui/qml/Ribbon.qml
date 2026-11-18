@@ -11,6 +11,7 @@ import CXCAM.Theme 1.0
 Rectangle {
     id: ribbon
     property var target: null
+    property var viewport: null               // 中央 3D 视口（Viewport），供「视图」标签的显示模式下拉框调用
     property string projectName: "未命名.ccpj"   // 当前项目名（M0 占位，待 App 文档模块接入后绑定真实项目）
     property bool collapsed: false               // ribbon 收起/展开：收起时隐藏第三行工具组
     height: collapsed ? 68 : 188   // 标题栏 40 + 标签栏 28 + 内容区 120（收起时内容区为 0）
@@ -24,11 +25,12 @@ Rectangle {
     // —— 可扩展标签数据：title = 标签名，groups = 工具组列表 ——
     property var tabs: [
         { title: "文件", groups: [
-            { name: "文件操作", actions: ["新建", "打开", "保存", "另存为"] },
-            { name: "数据交换", actions: ["导入", "导出", "CLData"] }
+            { name: "文件操作", actions: ["新建项目", "导入模型", "保存", "另存为"] },
+            { name: "数据交换", actions: ["导出模型", "CLData"] }
         ]},
         { title: "视图", groups: [
             { name: "视角", actions: ["适应", "平移", "旋转", "缩放"] },
+            { name: "显示模式", widget: "displayMode" },
             { name: "显示", actions: ["网格", "坐标系", "阴影", "线框"] },
             { name: "导航", actions: ["前视", "俯视", "侧视", "等轴测"] }
         ]},
@@ -325,6 +327,7 @@ Rectangle {
                     RibbonPage {
                         current: index === tabs.currentIndex
                         groups: modelData.groups
+                        viewport: ribbon.viewport
                     }
                 }
             }
