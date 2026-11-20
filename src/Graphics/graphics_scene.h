@@ -87,6 +87,7 @@ public:
     void setOwnerSelected(const GraphicsOwnerPtr& owner, bool on);
     void toggleOwnerSelected(const GraphicsOwnerPtr& owner);
     void clearSelection();
+    void clearDetected();
 
     template<typename Function>
     void foreachDisplayedObject(Function fn) const;

@@ -1,4 +1,4 @@
-if(CXCAM_WITH_OCCT)
+if(CAMX_WITH_OCCT)
     add_subdirectory(Graphics)
 endif()
 add_subdirectory(Gui)

@@ -1,5 +1,5 @@
 import QtQuick
-import CXCAM.Theme 1.0
+import CAMX.Theme 1.0
 
 // 标题栏窗口控制按钮：最小化 / 最大化 / 还原 / 关闭
 Rectangle {

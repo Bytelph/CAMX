@@ -1,11 +1,11 @@
-# CXCAM 方案文档
+# CAMX 方案文档
 
 > 版本：v0.1（2026-11-09）
 > 状态：方案设计阶段
 
 ## 1. 项目概述
 
-CXCAM 是一款以 FreeCAD 为参考、基于 C++17 与 OpenCASCADE Technology (OCCT) 的 CAM 软件，核心模块：
+CAMX 是一款以 FreeCAD 为参考、基于 C++17 与 OpenCASCADE Technology (OCCT) 的 CAM 软件，核心模块：
 
 | 模块 | 功能 |
 |---|---|
@@ -375,7 +375,7 @@ project.ccpj  (ZIP 容器)
 ## 8. 目录结构
 
 ```
-CXCAM/
+CAMX/
 ├─ CMakeLists.txt
 ├─ cmake/
 ├─ src/
@@ -390,7 +390,7 @@ CXCAM/
 │  ├─ Post/          # 后处理：CLData→G代码 + 配置表
 │  ├─ ToolLib/       # 刀具库（SQLite）
 │  ├─ Mcp/           # MCP Server（JSON-RPC、工具注册、无头入口）
-│  └─ Main/          # 可执行入口：CXCAM(GUI) / cxcam-mcp(无头)
+│  └─ Main/          # 可执行入口：CAMX(GUI) / camx-mcp(无头)
 ├─ modules/          # 可动态加载的工作台插件（可选，后期）
 ├─ resources/        # 图标、后处理配置、刀具模板、探针宏
 ├─ tests/            # 单元测试 + 集成测试（CTest）

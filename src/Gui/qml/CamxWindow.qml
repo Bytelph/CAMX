@@ -1,16 +1,16 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Window
-import CXCAM.Theme 1.0
-import CXCAM.NotificationManager 1.0
+import CAMX.Theme 1.0
+import CAMX.NotificationManager 1.0
 
-// 单个 CXCAM 文档窗口：由 WindowManager 在同一进程内动态创建（「新建项目」即再开一个）。
+// 单个 CAMX 文档窗口：由 WindowManager 在同一进程内动态创建（「新建项目」即再开一个）。
 // 每个窗口拥有独立的 ribbon / 3D 视口 / 状态栏 / 项目树与无边框窗口控制。
 ApplicationWindow {
     id: root
     width: 1440
     height: 900
-    title: "CXCAM — 计算机辅助制造"
+    title: "CAMX — 计算机辅助制造"
     color: Theme.bg
 
     // 无边框窗口

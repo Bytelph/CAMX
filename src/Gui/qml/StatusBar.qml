@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Controls
-import CXCAM.Theme 1.0
+import CAMX.Theme 1.0
 
 // 底部状态栏
 Rectangle {
@@ -15,7 +15,7 @@ Rectangle {
     property string importStatus: ""
     // 最近一次模型导出的结果消息（"已导出：xxx" / "导出失败：…"）
     property string exportStatus: ""
-    // 模型导入进度（-1 = 隐藏，0..1 = 进行中），由 CxcamWindow 从视口透传
+    // 模型导入进度（-1 = 隐藏，0..1 = 进行中），由 CamxWindow 从视口透传
     property real importProgress: -1
 
     // 中间栏显示最近一次导入/导出结果（导入优先；两者皆空则留白）

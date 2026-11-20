@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Shapes
-import CXCAM.Theme 1.0
+import CAMX.Theme 1.0
 
 // 线性矢量图标。
 // 用 Shape + PathSvg 直接绘制 SVG 路径，无需外部图片资源；图标按 24×24 设计稿绘制，再缩放到 size。

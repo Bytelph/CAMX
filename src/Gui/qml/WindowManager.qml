@@ -2,8 +2,8 @@ pragma Singleton
 import QtQuick
 import QtQuick.Dialogs
 
-// 窗口管理器（QML 单例，CXCAM.WindowManager.WindowManager）：
-// 在同一进程内动态创建多个 CXCAM 文档窗口，避免「新建项目」冷启动一个新进程（加载 Qt/OCCT
+// 窗口管理器（QML 单例，CAMX.WindowManager.WindowManager）：
+// 在同一进程内动态创建多个 CAMX 文档窗口，避免「新建项目」冷启动一个新进程（加载 Qt/OCCT
 // DLL + 重新初始化 OpenGL/AIS），新窗口近乎即时弹出。新窗口在原窗口位置基础上级联错开。
 QtObject {
     id: manager
@@ -14,7 +14,7 @@ QtObject {
     property var exportTarget: null   // 发起「导出模型」的窗口（onAccepted 时回传保存路径）
 
     // QtObject 没有默认属性，组件须以「属性绑定」形式声明，否则会被当作子对象赋值而报错
-    property Component windowComponent: CxcamWindow { }
+    property Component windowComponent: CamxWindow { }
 
     // 「导入模型」文件选择对话框（STEP/IGES/BRep/STL/PLY/VRML/OBJ）。
     // 选中文件后回传给发起窗口的 3D 视口，由 GraphicsViewport 在渲染线程解析几何。

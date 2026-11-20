@@ -1,5 +1,5 @@
 import QtQuick
-import CXCAM.Theme 1.0
+import CAMX.Theme 1.0
 
 // 树叶子节点
 Item {

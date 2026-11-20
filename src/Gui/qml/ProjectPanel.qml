@@ -1,5 +1,5 @@
 import QtQuick
-import CXCAM.Theme 1.0
+import CAMX.Theme 1.0
 
 // 左侧项目树：浅灰底板悬浮在 3D 视口之上。
 // 底板随悬停淡入淡出（悬停 50% / 离开 0），文字始终 100% 不透明，保持清晰可读。

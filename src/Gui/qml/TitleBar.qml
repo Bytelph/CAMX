@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Window
-import CXCAM.Theme 1.0
+import CAMX.Theme 1.0
 
 // 自定义标题栏：应用名 + 拖动区 + 窗口控制按钮（已移除文档标签与撤销/重做/保存）
 Rectangle {
@@ -19,7 +19,7 @@ Rectangle {
     }
 
     Text {
-        text: "CXCAM"
+        text: "CAMX"
         color: Theme.textBright
         font.pixelSize: 13
         font.bold: true

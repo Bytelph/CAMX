@@ -142,13 +142,25 @@ void applyDisplayMode(const GraphicsObjectPtr& object, DisplayMode mode)
 
     if (isMeshObject(object)) {
         int aisMode = -1;
+        bool suppressBackFaces = false;
         switch (mode) {
         case DisplayMode::MeshWireframe: aisMode = MeshVS_DMF_WireFrame; break;
-        case DisplayMode::MeshShaded:    aisMode = MeshVS_DMF_Shading; break;
-        case DisplayMode::MeshShrink:    aisMode = MeshVS_DMF_Shrink; break;
+        case DisplayMode::MeshShaded:    aisMode = MeshVS_DMF_Shading;   break;
+        case DisplayMode::MeshSolid:     aisMode = MeshVS_DMF_Shading; suppressBackFaces = true; break;
+        case DisplayMode::MeshShrink:    aisMode = MeshVS_DMF_Shrink;    break;
         default: return;   // shape 模式不适用于网格
         }
+
+        // 实体 = 背面剔除（只画朝外的面，呈实体外观）；壳 = 双面（默认）。二者都走
+        // MeshVS_DMF_Shading 模式，区别只在抽屉属性，故先改属性再 SetDisplayMode，
+        // 并显式 Redisplay 让属性变更重算表示（模式未变时 SetDisplayMode 不会重算）。
+        auto mesh = OccHandle<MeshVS_Mesh>::DownCast(object);
+        if (!mesh.IsNull() && !mesh->GetDrawer().IsNull()) {
+            mesh->GetDrawer()->SetBoolean(MeshVS_DA_SupressBackFaces, suppressBackFaces);
+        }
+
         ctx->SetDisplayMode(object, aisMode, false);
+        object->Redisplay(true);
         return;
     }
 
@@ -192,8 +204,15 @@ DisplayMode currentDisplayMode(const GraphicsObjectPtr& object)
         switch (object->DisplayMode()) {
         case MeshVS_DMF_WireFrame: return DisplayMode::MeshWireframe;
         case MeshVS_DMF_Shrink:    return DisplayMode::MeshShrink;
-        default:                   return DisplayMode::MeshShaded;
+        default:                   break;
         }
+
+        // Shading 模式下用背面剔除标志区分「实体」与「壳（双面）」
+        auto mesh = OccHandle<MeshVS_Mesh>::DownCast(object);
+        bool suppressBackFaces = false;
+        if (!mesh.IsNull() && !mesh->GetDrawer().IsNull())
+            mesh->GetDrawer()->GetBoolean(MeshVS_DA_SupressBackFaces, suppressBackFaces);
+        return suppressBackFaces ? DisplayMode::MeshSolid : DisplayMode::MeshShaded;
     }
 
     AIS_InteractiveContext* ctx = object->InteractiveContext();

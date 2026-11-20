@@ -290,6 +290,11 @@ void GraphicsScene::clearSelection()
         this->signalSelectionChanged.send();
 }
 
+void GraphicsScene::clearDetected()
+{
+    d->m_aisContext->ClearDetected(false);
+}
+
 AIS_InteractiveContext* GraphicsScene::aisContextPtr() const
 {
     return d->m_aisContext.get();

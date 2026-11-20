@@ -13,7 +13,7 @@ ApplicationBar::ApplicationBar(QWidget* parent) : QWidget(parent) {
     layout->setContentsMargins(8, 0, 8, 0);
     layout->setSpacing(4);
 
-    auto* logo = new QLabel("CXCAM");
+    auto* logo = new QLabel("CAMX");
     logo->setObjectName("appLogo");
     layout->addWidget(logo);
 

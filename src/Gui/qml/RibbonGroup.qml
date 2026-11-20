@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Window
-import CXCAM.Theme 1.0
-import CXCAM.WindowManager 1.0
+import CAMX.Theme 1.0
+import CAMX.WindowManager 1.0
 
 // ribbon 工具组：一排按钮在上、分类标题在下（标题紧贴组的下边框），左侧可选分割线
 Item {
@@ -9,8 +9,8 @@ Item {
     property string title: ""
     property var actions: []
     property bool showDivider: false
-    property string widget: ""      // "" = 常规按钮组；"displayMode" = 显示模式下拉框
-    property var viewport: null     // 显示模式下拉框的目标视口（Viewport）
+    property string widget: ""      // "" = 常规按钮组；"displayMode"/"pickMode" = 显示模式/拾取下拉框
+    property var viewport: null     // 显示模式/拾取下拉框的目标视口（Viewport）
 
     implicitWidth: contentArea.width + (group.showDivider ? 13 : 0)
 
@@ -107,7 +107,8 @@ Item {
     // 内容区：位于分割线右侧，撑满组的高度；按钮靠上、分类标题靠下边框
     Item {
         id: contentArea
-        width: group.widget === "displayMode" ? displayModeCombo.width : buttonsRow.width
+        width: group.widget === "displayMode" ? displayModeCombo.width
+             : (group.widget === "pickMode" ? pickModeCombo.width : buttonsRow.width)
         anchors.left: divider.right
         anchors.leftMargin: group.showDivider ? 12 : 0
         anchors.top: parent.top
@@ -124,6 +125,17 @@ Item {
             displayMode: group.viewport ? group.viewport.displayMode : 0
         }
 
+        // 拾取模式下拉框（仅「视图」标签的「拾取」组）
+        PickModeSelector {
+            id: pickModeCombo
+            anchors.top: parent.top
+            anchors.topMargin: 16
+            anchors.horizontalCenter: parent.horizontalCenter
+            visible: group.widget === "pickMode"
+            viewport: group.viewport
+            pickMode: group.viewport ? group.viewport.pickMode : 0
+        }
+
         // 按钮行（上）—— 常规工具组
         Row {
             id: buttonsRow
@@ -131,7 +143,7 @@ Item {
             anchors.topMargin: 16
             anchors.horizontalCenter: parent.horizontalCenter
             spacing: 2
-            visible: group.widget !== "displayMode"
+            visible: group.widget !== "displayMode" && group.widget !== "pickMode"
             Repeater {
                 model: group.actions
                 RibbonButton {

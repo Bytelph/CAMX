@@ -16,17 +16,28 @@
 #include <AIS_ViewCube.hxx>
 #include <Aspect_GradientFillMethod.hxx>
 #include <Aspect_NeutralWindow.hxx>
+#include <Aspect_TypeOfLine.hxx>
 #include <Aspect_TypeOfTriedronPosition.hxx>
+#include <Aspect_TypeOfHighlightMethod.hxx>
+#include <Graphic3d_AspectFillArea3d.hxx>
 #include <Graphic3d_Camera.hxx>
+#include <Graphic3d_MaterialAspect.hxx>
+#include <Graphic3d_NameOfMaterial.hxx>
 #include <Graphic3d_TransformPers.hxx>
 #include <Graphic3d_TransModeFlags.hxx>
+#include <Graphic3d_ZLayerId.hxx>
 #include <Geom_Axis2Placement.hxx>
 #include <gp.hxx>
 #include <NCollection_Vec2.hxx>
+#include <MeshVS_Mesh.hxx>
+#include <MeshVS_SelectionModeFlags.hxx>
 #include <OpenGl_Context.hxx>
 #include <OpenGl_GraphicDriver.hxx>
 #include <Prs3d_DatumAspect.hxx>
 #include <Prs3d_Drawer.hxx>
+#include <Prs3d_LineAspect.hxx>
+#include <Prs3d_ShadingAspect.hxx>
+#include <Prs3d_TypeOfHighlight.hxx>
 #include <Quantity_Color.hxx>
 #include <TDocStd_Document.hxx>
 #include <V3d_TypeOfOrientation.hxx>
@@ -74,6 +85,37 @@ Mayo::OccHandle<Graphic3d_GraphicDriver> createQmlGraphicsDriver()
     return driver;
 }
 
+// 把 QML 拾取模式映射为 AIS/MeshVS 的选择模式。
+// AIS_Shape（实体）：AIS_Shape::SelectionMode(TopAbs_*)（0=体/整形状，4=面，2=边，1=点）。
+// MeshVS_Mesh（STL 等网格）：MeshVS_SMF_Mesh/Node/Link/Face（体/点/边/面）。
+// 返回 -1 表示该对象不支持该拾取模式（此时不激活任何选择模式）。
+int pickSelectionMode(const Mayo::GraphicsObjectPtr& object, GraphicsViewport::PickMode pick)
+{
+    const auto mesh = Mayo::OccHandle<MeshVS_Mesh>::DownCast(object);
+    if (!mesh.IsNull()) {
+        switch (pick) {
+        case GraphicsViewport::PickBody:  return int(MeshVS_SMF_Mesh);
+        case GraphicsViewport::PickFace:  return int(MeshVS_SMF_Face);
+        case GraphicsViewport::PickEdge:  return int(MeshVS_SMF_Link);
+        case GraphicsViewport::PickPoint: return int(MeshVS_SMF_Node);
+        default:                          return -1;
+        }
+    }
+
+    const auto shape = Mayo::OccHandle<AIS_Shape>::DownCast(object);
+    if (!shape.IsNull()) {
+        switch (pick) {
+        case GraphicsViewport::PickBody:  return AIS_Shape::SelectionMode(TopAbs_SHAPE);
+        case GraphicsViewport::PickFace:  return AIS_Shape::SelectionMode(TopAbs_FACE);
+        case GraphicsViewport::PickEdge:  return AIS_Shape::SelectionMode(TopAbs_EDGE);
+        case GraphicsViewport::PickPoint: return AIS_Shape::SelectionMode(TopAbs_VERTEX);
+        default:                          return -1;
+        }
+    }
+
+    return -1;
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -111,6 +153,7 @@ public:
         viewport->m_input->importPath.clear();   // 消费待导入请求
         viewport->m_input->exportPath.clear();   // 消费待导出请求
         viewport->m_input->pendingDisplayMode = -1;   // 消费待切换显示模式请求
+        viewport->m_input->pendingPickMode = -1;      // 消费待切换拾取模式请求
     }
 
     void render() override
@@ -144,6 +187,12 @@ public:
         if (m_input.pendingDisplayMode >= 0) {
             this->applyDisplayModeInternal(m_input.pendingDisplayMode);
             m_input.pendingDisplayMode = -1;
+        }
+
+        // 处理「切换拾取模式」请求（QML 下拉框写入，渲染线程应用后回写生效模式）
+        if (m_input.pendingPickMode >= 0) {
+            this->applyPickModeInternal(m_input.pendingPickMode);
+            m_input.pendingPickMode = -1;
         }
 
         this->applyNavigation();
@@ -204,8 +253,69 @@ private:
         // 原点坐标系（参考 Mayo 的原点坐标轴 AIS_Trihedron）：X 红 / Y 绿 / Z 蓝的着色三轴
         this->addOriginTrihedron();
 
+        // 拾取高亮样式（悬停 / 选中均为青色）
+        this->configureHighlightStyles();
+
         m_view->MustBeResized();
         m_view->Invalidate();
+    }
+
+    // 配置拾取高亮样式（参考 Mayo：用 COLOR 着色高亮，而非 OCCT 默认的 BOUNDBOX 包络框）。
+    // 按拾取对象类型区分：
+    //   · 体（整对象，走 Selected/Dynamic）：着色面（青色）+ 原色边（黑，与对象自身边色一致）；
+    //   · 面（子形状，走 LocalSelected/LocalDynamic）：显示「面」，青色 —— 着色方式填充面片。
+    // OCCT 默认的 LocalDynamic 样式在 Topmost 层且深度独立（无视遮挡画到最前面，把悬停面片
+    // 顶到最前遮挡后面的几何）；这里统一改成 UNKNOWN（与对象同层、正常深度），取消「放在最前面」。
+    void configureHighlightStyles()
+    {
+        // 体（整对象）高亮：整对象走 PrsMgr_PresentationManager::Color → Graphic3d_Structure::Highlight
+        // 的「均匀重着色」路径 —— 边与面都取高亮样式的 ColorRGBA()（即 SetColor 设置的基本色）。
+        // 若只用 SetColor(青)，边会被一起染成青色。参考 Mayo 的做法：用 SetBasicFillAreaAspect 给
+        // 「面」单独指定填充材质（OpenGl_Context::SetShadingMaterial 里，存在 BasicFillAreaAspect 时
+        // 用它的材质渲染面，不再用 ColorRGBA 重着色面），同时把基本色 SetColor(黑) 让边保持黑色。
+        const auto configureBodyStyle = [this](Prs3d_TypeOfHighlight style) {
+            const auto& drawer = m_scene->drawerHighlight(style);
+            if (drawer.IsNull())
+                return;
+
+            // 以默认 shading aspect 为起点构造填充面外观（继承对象自身的材质/光照等设置）
+            auto fillArea = Mayo::makeOccHandle<Graphic3d_AspectFillArea3d>();
+            const auto& defaultShadingAspect = m_scene->drawerDefault()->ShadingAspect();
+            if (!defaultShadingAspect.IsNull() && !defaultShadingAspect->Aspect().IsNull())
+                *fillArea = *defaultShadingAspect->Aspect();
+
+            const Quantity_Color cyan(0.0f, 1.0f, 1.0f, Quantity_TOC_RGB);   // 面内部：青色
+            fillArea->SetInteriorColor(cyan);
+            Graphic3d_MaterialAspect fillMaterial(Graphic3d_NOM_PLASTER);
+            fillMaterial.SetColor(cyan);
+            fillArea->SetFrontMaterial(fillMaterial);
+            fillArea->SetBackMaterial(fillMaterial);
+
+            drawer->SetColor(Quantity_Color(Quantity_NOC_BLACK));   // 边：黑色（EdgeColor()→ColorRGBA）
+            drawer->SetDisplayMode(AIS_Shaded);
+            drawer->SetBasicFillAreaAspect(fillArea);
+        };
+
+        // 面（子形状）高亮：子形状走 StdSelect_BRepOwner::HilightWithColor → StdPrs_ShadedShape 重算
+        // 路径，尊重 SetColor / SetDisplayMode / SetZLayer / SetFaceBoundaryDraw，故用原有方式即可。
+        const auto configureFaceStyle = [this](Prs3d_TypeOfHighlight style) {
+            const auto& drawer = m_scene->drawerHighlight(style);
+            if (drawer.IsNull())
+                return;
+            drawer->SetMethod(Aspect_TOHM_COLOR);
+            drawer->SetDisplayMode(AIS_Shaded);
+            drawer->SetColor(Quantity_Color(0.0f, 1.0f, 1.0f, Quantity_TOC_RGB));
+            drawer->SetZLayer(Graphic3d_ZLayerId_UNKNOWN);
+            drawer->SetFaceBoundaryDraw(false);
+        };
+
+        // 体（整对象）：着色面（青色）+ 原色边（黑） —— 悬停 Dynamic / 选中 Selected
+        configureBodyStyle(Prs3d_TypeOfHighlight_Dynamic);
+        configureBodyStyle(Prs3d_TypeOfHighlight_Selected);
+
+        // 面（子形状）：着色面、青色 —— 悬停 LocalDynamic / 选中 LocalSelected
+        configureFaceStyle(Prs3d_TypeOfHighlight_LocalDynamic);
+        configureFaceStyle(Prs3d_TypeOfHighlight_LocalSelected);
     }
 
     // 清除当前所有显示对象（并释放 XCAF 文档引用）。
@@ -250,6 +360,9 @@ private:
             : int(Mayo::DisplayMode::ShapeShadedWithEdges);
         this->applyDisplayModeInternal(defaultMode);
 
+        // 导入会重置各对象的选择模式为默认整体，这里按当前拾取模式重新激活对应选择模式
+        this->applyPickSelectionModes();
+
         m_view->FitAll(0.1, false);
         m_view->ZFitAll();
         m_view->Invalidate();
@@ -279,6 +392,8 @@ private:
         const int defaultMode = int(Mayo::DisplayMode::ShapeShadedWithEdges);
         this->applyDisplayModeInternal(defaultMode);
 
+        this->applyPickSelectionModes();
+
         m_view->FitAll(0.1, false);
         m_view->ZFitAll();
         m_view->Invalidate();
@@ -307,6 +422,48 @@ private:
         const int effective = int(Mayo::currentDisplayMode(m_currentObjects.front()));
         this->reportDisplayMode(effective);
         this->reportIsMesh(m_isMesh);
+    }
+
+    // 在渲染线程切换拾取模式（无 / 体 / 面 / 边 / 点）：更新本渲染器的拾取模式，
+    // 重新激活各显示对象的对应选择模式，并把生效模式写回 GUI 线程供下拉框回显。
+    void applyPickModeInternal(int mode)
+    {
+        if (mode < 0 || mode > int(GraphicsViewport::PickPoint))
+            return;
+        m_pickMode = mode;
+        this->applyPickSelectionModes();
+        this->reportPickMode(m_pickMode);
+    }
+
+    // 清空所有模型对象当前激活的选择模式，再按 m_pickMode 激活对应模式（体/面/边/点）。
+    // 同时清掉已固定的选中项，避免切换模式后残留上一种模式的高亮。
+    void applyPickSelectionModes()
+    {
+        if (m_currentObjects.empty())
+            return;
+
+        for (const auto& object : m_currentObjects)
+            m_scene->deactivateObjectSelection(object);
+        m_scene->clearSelection();
+
+        const GraphicsViewport::PickMode pick = GraphicsViewport::PickMode(m_pickMode);
+        if (pick == GraphicsViewport::PickNone)
+            return;
+
+        for (const auto& object : m_currentObjects) {
+            const int selMode = pickSelectionMode(object, pick);
+            if (selMode >= 0)
+                m_scene->activateObjectSelection(object, selMode);
+        }
+    }
+
+    // 把生效的拾取模式跨线程写回 GUI 线程，供拾取下拉框回显
+    void reportPickMode(int mode)
+    {
+        if (m_viewport)
+            QMetaObject::invokeMethod(m_viewport, [vp = m_viewport, mode]() {
+                vp->updatePickMode(mode);
+            }, Qt::QueuedConnection);
     }
 
     // 启动后台线程读取模型文件（不阻塞渲染线程）。解析完成后由 applyImportResultIfReady()
@@ -648,10 +805,12 @@ private:
                             .arg(p.Y(), 0, 'f', 3)
                             .arg(p.Z(), 0, 'f', 3);
             }
-            // 非视图立方体：清除 MoveTo 触发的动态高亮（模型/坐标轴悬停不高亮）。
+            // 非视图立方体：无拾取模式时清除 MoveTo 触发的动态高亮（模型/坐标轴悬停不高亮）。
+            // 拾取模式下保留动态高亮（橙色），作为「鼠标拾上去高亮」的提示，不在此清除。
             // 悬停在视图立方体上时不调用 clearSelection —— 保留检测状态，让 AIS_ViewCube
             // 自动高亮鼠标指向的那个面/方向（AIS_ViewCubeOwner 对应具体朝向）。
-            m_scene->clearSelection();
+            if (m_pickMode == int(GraphicsViewport::PickNone))
+                m_scene->clearSelection();
         }
         // 悬停在视图立方体或空白处时 coord 为空 —— 不显示坐标
 
@@ -659,6 +818,27 @@ private:
             QMetaObject::invokeMethod(m_viewport, [vp = m_viewport, coord]() {
                 vp->setCursorCoordinates(coord);
             }, Qt::QueuedConnection);
+    }
+
+    // 左键点击拾取（拾取模式下）：把当前检测到的模型对象固定为选中（持久红色高亮）。
+    // 点击空白处则取消固定选中；点击视图立方体由 tryPickViewCube 拦截，不走这里。
+    void pickAt(int px, int py)
+    {
+        m_scene->highlightAt(px, py, m_view);
+        const Mayo::GraphicsOwnerPtr owner = m_scene->currentHighlightedOwner();
+        const auto cubeOwner = Mayo::OccHandle<AIS_ViewCubeOwner>::DownCast(owner);
+        if (cubeOwner)
+            return;   // 视图立方体：由 tryPickViewCube 处理，不参与模型拾取
+
+        if (owner.IsNull()) {
+            // 空白处：取消固定选中（悬停动态高亮由后续 hoverAt 更新）
+            m_scene->clearSelection();
+            return;
+        }
+
+        // 把当前检测到的 owner 设为选中（替换之前的选中，实现「点击固定高亮」）。
+        // 场景选择模式为 Single 时等价于 SelectDetected(AIS_SelectionScheme_Replace)。
+        m_scene->select();
     }
 
     // 视图切换相机动画：每帧推进一次（Mayo 的 V3dViewCameraAnimation::updateCurrentTime 逻辑）。
@@ -700,17 +880,37 @@ private:
         const bool prevRight = m_prevButtons.testFlag(Qt::RightButton);
         const bool prevMiddle = m_prevButtons.testFlag(Qt::MiddleButton);
 
-        // 左键按下：先尝试拾取右上角视图立方体（点击切换视角），否则进入旋转。
+        // 左键按下：先尝试拾取右上角视图立方体（点击切换视角）。拾取模式下左键不再独占为「拾取」，
+        // 而是与旋转共存（不限旋转）：原地点击 = 拾取，按住拖动超过阈值 = 旋转。
         // V3d_View::Convert/StartRotation/Rotation 的像素输入都采用“左上角为原点”（与 Qt 一致），
         // 因此这里直接传 py，不做 y 翻转（y 翻转会导致视图立方体永远命中不了）。
+        const bool pickMode = m_pickMode != int(GraphicsViewport::PickNone);
         if (left && !prevLeft) {
             m_viewCubeHit = this->tryPickViewCube(px, py);
-            if (!m_viewCubeHit)
+            m_pickPressPos = m_input.pos;   // 记录按下位置（逻辑像素），用于点击/拖动判定
+            m_pickDragRotating = false;
+            if (!m_viewCubeHit && !pickMode)
                 m_view->StartRotation(px, py);
         }
         else if (left && prevLeft) {
-            if (!m_viewCubeHit)
-                m_view->Rotation(px, py);
+            if (!m_viewCubeHit) {
+                if (!pickMode) {
+                    m_view->Rotation(px, py);
+                }
+                else if (m_pickDragRotating) {
+                    m_view->Rotation(px, py);   // 已判定为拖动：继续旋转
+                }
+                else if ((m_input.pos - m_pickPressPos).manhattanLength() >= 4.0) {
+                    m_pickDragRotating = true;  // 移动超过阈值：进入拖动旋转
+                    m_view->StartRotation(px, py);
+                    m_view->Rotation(px, py);
+                }
+            }
+        }
+        else if (!left && prevLeft) {
+            // 左键松开：拾取模式下若未发生拖动（原地点击），执行固定高亮拾取
+            if (!m_viewCubeHit && pickMode && !m_pickDragRotating)
+                this->pickAt(px, py);
         }
 
         // 右键 / 中键：平移。V3d_View::Pan 的 y 差量采用“向上为正”（与 Qt 的向下为正相反），
@@ -739,8 +939,12 @@ private:
                 }
             }
             else {
-                // 鼠标已离开视口：清除残留的高亮（坐标文本在 GUI 线程的 hoverLeaveEvent 中清空）
-                m_scene->clearSelection();
+                // 鼠标已离开视口：清除残留的高亮（坐标文本在 GUI 线程的 hoverLeaveEvent 中清空）。
+                // 拾取模式下保留已固定的选中（红色），只清除悬停高亮（橙色）。
+                if (m_pickMode == int(GraphicsViewport::PickNone))
+                    m_scene->clearSelection();
+                else
+                    m_scene->clearDetected();
             }
         }
 
@@ -770,7 +974,10 @@ private:
     QSize m_size;
     bool m_initFailed = false;
     bool m_viewCubeHit = false;
+    bool m_pickDragRotating = false;    // 拾取模式下左键拖动是否已超过阈值进入旋转
+    QPointF m_pickPressPos;             // 拾取模式下左键按下位置（逻辑像素），用于点击/拖动判定
     bool m_renderedOnce = false;
+    int m_pickMode = 0;                     // 当前拾取模式（0..4，对应 PickMode 枚举，默认无）
 
     // 视图切换相机动画（Mayo 式平滑过渡）：起止相机在渲染线程计算，进度由 GUI 线程动画驱动。
     GraphicsViewport* m_viewport = nullptr;                         // 用于经 QueuedConnection 触发 GUI 线程动画
@@ -886,10 +1093,25 @@ void GraphicsViewport::updateIsMeshModel(bool mesh)
     emit isMeshModelChanged();
 }
 
+void GraphicsViewport::updatePickMode(int mode)
+{
+    if (m_pickMode == mode)
+        return;
+    m_pickMode = mode;
+    emit pickModeChanged();
+}
+
 void GraphicsViewport::setDisplayMode(int mode)
 {
     // QML 下拉框请求切换：写入待处理值并触发渲染线程应用。
     m_input->pendingDisplayMode = mode;
+    update();
+}
+
+void GraphicsViewport::setPickMode(int mode)
+{
+    // QML 拾取下拉框请求切换：写入待处理值并触发渲染线程应用。
+    m_input->pendingPickMode = mode;
     update();
 }
 

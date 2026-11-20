@@ -14,7 +14,7 @@ file(GLOB GRAPHICS_HEADERS CONFIGURE_DEPENDS
 # vendored fmt（编译模式，非 header-only）
 set(FMT_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/../3rdparty/fmt/src/format.cc)
 
-add_library(cxcam_graphics STATIC
+add_library(camx_graphics STATIC
     ${GRAPHICS_SOURCES}
     ${GRAPHICS_HEADERS}
     ${FMT_SOURCE}
@@ -23,17 +23,17 @@ add_library(cxcam_graphics STATIC
 # 头文件根：
 #   src/            -> "Graphics/xxx.h" 约定（与 Gui/Main 一致）
 #   src/3rdparty    -> <gsl/span> <fmt/format.h> <kdbindings/signal.h>
-target_include_directories(cxcam_graphics PUBLIC
+target_include_directories(camx_graphics PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/..
     ${CMAKE_CURRENT_SOURCE_DIR}/../3rdparty
 )
 
-target_compile_definitions(cxcam_graphics PUBLIC
+target_compile_definitions(camx_graphics PUBLIC
     NOMINMAX
 )
 
 if(MSVC)
-    target_compile_options(cxcam_graphics PUBLIC /utf-8 /W3)
+    target_compile_options(camx_graphics PUBLIC /utf-8 /W3)
 endif()
 
 # OpenCASCADE：
@@ -47,8 +47,8 @@ get_filename_component(OCCT_PREFIX "${OpenCASCADE_DIR}" DIRECTORY)
 set(OCCT_INCLUDE_DIR "${OCCT_PREFIX}/inc")
 set(OCCT_LIBRARY_DIR "${OCCT_PREFIX}/win64/vc14/lib")
 
-target_include_directories(cxcam_graphics PUBLIC "${OCCT_INCLUDE_DIR}")
-target_link_directories(cxcam_graphics PUBLIC "${OCCT_LIBRARY_DIR}")
+target_include_directories(camx_graphics PUBLIC "${OCCT_INCLUDE_DIR}")
+target_link_directories(camx_graphics PUBLIC "${OCCT_LIBRARY_DIR}")
 
 foreach(_occt_lib IN ITEMS
         # FoundationClasses
@@ -65,9 +65,9 @@ foreach(_occt_lib IN ITEMS
         TKXCAF TKXmlXCAF
         # DataExchange (STEP/IGES/BRep/STL/OBJ/PLY/VRML 读写)
         TKDE TKDESTEP TKDEIGES TKDESTL TKDEOBJ TKDEPLY TKDEVRML TKXSBase)
-    target_link_libraries(cxcam_graphics PUBLIC "${OCCT_LIBRARY_DIR}/${_occt_lib}.lib")
+    target_link_libraries(camx_graphics PUBLIC "${OCCT_LIBRARY_DIR}/${_occt_lib}.lib")
 endforeach()
 
 if(WIN32)
-    target_link_libraries(cxcam_graphics PUBLIC opengl32 user32 gdi32 advapi32)
+    target_link_libraries(camx_graphics PUBLIC opengl32 user32 gdi32 advapi32)
 endif()

@@ -20,7 +20,8 @@ enum class DisplayMode {
     ShapeShaded,               // 形状：着色
     ShapeShadedWithEdges,      // 形状：着色 + 边线
     MeshWireframe,             // 网格：线框
-    MeshShaded,                // 网格：着色
+    MeshShaded,                // 网格：着色（壳 / 双面）
+    MeshSolid,                 // 网格：实体（背面剔除）
     MeshShrink                 // 网格：收缩（Shrink）
 };
 

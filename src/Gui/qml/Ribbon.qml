@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Window
-import CXCAM.Theme 1.0
+import CAMX.Theme 1.0
 
 // 工作区 ribbon（现代 Word 风格）：
 //   第一行 = 标题栏（应用名 + 快速操作 + 拖动区 + 窗口控制按钮）
@@ -31,6 +31,7 @@ Rectangle {
         { title: "视图", groups: [
             { name: "视角", actions: ["适应", "平移", "旋转", "缩放"] },
             { name: "显示模式", widget: "displayMode" },
+            { name: "拾取", widget: "pickMode" },
             { name: "显示", actions: ["网格", "坐标系", "阴影", "线框"] },
             { name: "导航", actions: ["前视", "俯视", "侧视", "等轴测"] }
         ]},
@@ -122,7 +123,7 @@ Rectangle {
 
             Text {
                 id: logo
-                text: "CXCAM"
+                text: "CAMX"
                 color: Theme.textBright
                 font.pixelSize: 13
                 font.bold: true

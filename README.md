@@ -1,10 +1,10 @@
-# CXCAM
+# CAMX
 
 基于 C++17 / OCCT / Qt 的 CAM 软件。当前阶段为 **M0 地基**：Fusion 360 风格界面骨架。
 
 完整方案见 [`PLAN.md`](PLAN.md)。
 
-![CXCAM 界面](images/page.png)
+![CAMX 界面](images/page.png)
 
 ## 目录结构
 
@@ -20,7 +20,7 @@ src/
 ├─ Post/         后处理
 ├─ ToolLib/      刀具库
 ├─ Mcp/          MCP Server
-└─ Main/         可执行入口（CXCAM）
+└─ Main/         可执行入口（CAMX）
 ```
 
 ## 依赖
@@ -28,7 +28,7 @@ src/
 - CMake ≥ 3.21
 - Qt 6.x（Widgets）
 - MSVC 2019/2022 或 MinGW（C++17）
-- 可选：OpenCASCADE（`-DCXCAM_WITH_OCCT=ON`）、OpenVDB（`-DCXCAM_WITH_OPENVDB=ON`）
+- 可选：OpenCASCADE（`-DCAMX_WITH_OCCT=ON`）、OpenVDB（`-DCAMX_WITH_OPENVDB=ON`）
 
 ## 构建（Windows）
 
@@ -44,8 +44,8 @@ cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH="C:/Qt/6.6.3/msvc2019_64"
 cmake --build build --config Release
 
 # 3) 运行
-./build/Release/CXCAM.exe   # VS 生成器
-./build/CXCAM.exe           # Ninja 生成器
+./build/Release/CAMX.exe   # VS 生成器
+./build/CAMX.exe           # Ninja 生成器
 ```
 
 ## 当前界面

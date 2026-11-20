@@ -12,7 +12,7 @@
 #include <QToolBar>
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
-    setWindowTitle("CXCAM — 计算机辅助制造");
+    setWindowTitle("CAMX — 计算机辅助制造");
     resize(1440, 900);
 
     buildAppBar();

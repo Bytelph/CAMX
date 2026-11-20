@@ -1,5 +1,5 @@
 import QtQuick
-import CXCAM.Theme 1.0
+import CAMX.Theme 1.0
 
 // 中央 3D 视口：OCCT 可用时加载原生 AIS 视口，否则退回 Canvas 占位
 Rectangle {
@@ -19,11 +19,14 @@ Rectangle {
     // 模型导入进度（-1 = 隐藏，0..1 = 进行中），透传给状态栏进度条。
     property real importProgress: -1
 
-    // 当前显示模式（0..6，对应 Mayo::DisplayMode），由底层 GraphicsViewport 写回，供显示模式下拉框回显。
+    // 当前显示模式（0..7，对应 Mayo::DisplayMode），由底层 GraphicsViewport 写回，供显示模式下拉框回显。
     property int displayMode: 0
 
     // 当前模型是否为网格型（STL/OBJ/PLY 为 true，STEP/IGES/BRep 为 false）。
     property bool isMeshModel: false
+
+    // 当前拾取模式（0..4，对应 PickMode 枚举），由底层 GraphicsViewport 写回，供拾取下拉框回显。
+    property int pickMode: 0
 
     // 把「导入模型」请求转发给底层 OCCT 视口（占位 Canvas 无此方法时忽略）
     function importFile(url) {
@@ -43,10 +46,16 @@ Rectangle {
             loader.item.setDisplayMode(mode)
     }
 
+    // 把「切换拾取模式」请求转发给底层 OCCT 视口
+    function setPickMode(mode) {
+        if (loader.item && loader.item.setPickMode)
+            loader.item.setPickMode(mode)
+    }
+
     Loader {
         id: loader
         anchors.fill: parent
-        // occAvailable 由 main.cpp 注入；避免无 OCCT 构建下解析 CXCAM.Graphics 模块失败
+        // occAvailable 由 main.cpp 注入；避免无 OCCT 构建下解析 CAMX.Graphics 模块失败
         sourceComponent: occAvailable ? occViewport : placeholder
     }
 
@@ -70,6 +79,9 @@ Rectangle {
         }
         function onIsMeshModelChanged() {
             viewport.isMeshModel = loader.item ? loader.item.isMeshModel : false
+        }
+        function onPickModeChanged() {
+            viewport.pickMode = loader.item ? loader.item.pickMode : 0
         }
     }
 

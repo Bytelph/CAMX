@@ -7,13 +7,13 @@
 #include "Gui/SystemTheme.h"
 #include "Gui/WindowController.h"
 
-#ifdef CXCAM_HAS_OCCT
+#ifdef CAMX_HAS_OCCT
 #  include "Gui/GraphicsViewport.h"
 #  include "Gui/qtopengl_utils.h"
 #endif
 
 int main(int argc, char** argv) {
-#ifdef CXCAM_HAS_OCCT
+#ifdef CAMX_HAS_OCCT
     // 必须在 QGuiApplication 之前：
     //   * 强制桌面 OpenGL（OCCT TKOpenGl 不支持 ANGLE/GLES）
     //   * 开启 GL 上下文共享，并设置默认 QSurfaceFormat
@@ -21,8 +21,8 @@ int main(int argc, char** argv) {
 #endif
 
     QGuiApplication app(argc, argv);
-    app.setApplicationName("CXCAM");
-    app.setOrganizationName("CXCAM");
+    app.setApplicationName("CAMX");
+    app.setOrganizationName("CAMX");
     app.setApplicationVersion("0.1.0");
 
     // 全系字体：微软雅黑
@@ -36,31 +36,31 @@ int main(int argc, char** argv) {
 
     // 深色主题单例（QML 中以 Theme.xxx 访问）
     qmlRegisterSingletonType(QUrl(QStringLiteral("qrc:/qml/Theme.qml")),
-                             "CXCAM.Theme", 1, 0, "Theme");
+                             "CAMX.Theme", 1, 0, "Theme");
 
     // 窗口管理器单例（QML 中以 WindowManager.openNewWindow() 再开一个文档窗口）
     qmlRegisterSingletonType(QUrl(QStringLiteral("qrc:/qml/WindowManager.qml")),
-                             "CXCAM.WindowManager", 1, 0, "WindowManager");
+                             "CAMX.WindowManager", 1, 0, "WindowManager");
 
     // 消息通知管理器单例（QML 中以 NotificationManager.push(type, title, message) 弹出通知）
     qmlRegisterSingletonType(QUrl(QStringLiteral("qrc:/qml/NotificationManager.qml")),
-                             "CXCAM.NotificationManager", 1, 0, "NotificationManager");
+                             "CAMX.NotificationManager", 1, 0, "NotificationManager");
 
-#ifdef CXCAM_HAS_OCCT
+#ifdef CAMX_HAS_OCCT
     // OCCT AIS 视口（QQuickFramebufferObject）
-    qmlRegisterType<GraphicsViewport>("CXCAM.Graphics", 1, 0, "GraphicsViewport");
+    qmlRegisterType<GraphicsViewport>("CAMX.Graphics", 1, 0, "GraphicsViewport");
 #endif
 
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("WindowController", windowController);
     engine.rootContext()->setContextProperty("SystemTheme", systemTheme);
-#ifdef CXCAM_HAS_OCCT
+#ifdef CAMX_HAS_OCCT
     engine.rootContext()->setContextProperty("occAvailable", true);
 #else
     engine.rootContext()->setContextProperty("occAvailable", false);
 #endif
 
-    // qml.qrc 位于 cxcam_gui 静态库中，需显式初始化资源
+    // qml.qrc 位于 camx_gui 静态库中，需显式初始化资源
     Q_INIT_RESOURCE(qml);
 
     const QUrl url(QStringLiteral("qrc:/qml/Main.qml"));

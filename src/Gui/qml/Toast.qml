@@ -1,5 +1,5 @@
 import QtQuick
-import CXCAM.Theme 1.0
+import CAMX.Theme 1.0
 
 // 单条消息通知气泡。类型决定左侧色条与图标颜色；进场淡入 + 轻微放大，到期淡出后
 // 通过 expired(toastKey) 通知 ToastLayer 移除自身。

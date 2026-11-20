@@ -1,5 +1,5 @@
 import QtQuick
-import CXCAM.Theme 1.0
+import CAMX.Theme 1.0
 
 // 文字型按钮（标题栏/工具栏通用）
 Rectangle {

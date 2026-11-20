@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Controls
-import CXCAM.Theme 1.0
+import CAMX.Theme 1.0
 
 // 显示模式切换下拉框：位于「视图」标签的 ribbon 工具栏中，切换当前模型的显示模式。
 // 由父级绑定 viewport（Viewport）与 displayMode（当前生效模式），用户选择后调用
@@ -11,7 +11,7 @@ ComboBox {
 
     // 目标视口（Viewport）：用于调用 setDisplayMode
     property var viewport: null
-    // 当前显示模式（0..6，对应 Mayo::DisplayMode），由视口回写后同步选中项
+    // 当前显示模式（0..7，对应 Mayo::DisplayMode），由视口回写后同步选中项
     property int displayMode: 0
 
     width: 176
@@ -24,7 +24,8 @@ ComboBox {
         { text: "形状 · 着色带边",  mode: 3 },
         { text: "网格 · 线框",      mode: 4 },
         { text: "网格 · 着色",      mode: 5 },
-        { text: "网格 · 收缩",      mode: 6 }
+        { text: "网格 · 实体",      mode: 6 },
+        { text: "网格 · 收缩",      mode: 7 }
     ]
     textRole: "text"
 

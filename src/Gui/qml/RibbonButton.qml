@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Controls
-import CXCAM.Theme 1.0
+import CAMX.Theme 1.0
 
 // ribbon 工具按钮：仅图标（悬停高亮 + 气泡提示文字）
 Rectangle {

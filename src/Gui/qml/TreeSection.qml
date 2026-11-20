@@ -1,5 +1,5 @@
 import QtQuick
-import CXCAM.Theme 1.0
+import CAMX.Theme 1.0
 
 // 可展开的树节点（无子节点时自动隐藏箭头）
 Column {

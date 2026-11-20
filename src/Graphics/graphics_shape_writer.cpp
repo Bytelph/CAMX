@@ -148,7 +148,7 @@ bool writeObjFile(const TopoDS_Shape& shape, const std::string& filePath, std::s
         return false;
     }
     out << std::setprecision(10);
-    out << "# CXCAM export (OBJ)\n";
+    out << "# CAMX export (OBJ)\n";
 
     long idx = 0;
     foreachTriangle(s, [&](const gp_Pnt& p1, const gp_Pnt& p2, const gp_Pnt& p3) {
