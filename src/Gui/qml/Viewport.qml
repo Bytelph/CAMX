@@ -26,7 +26,8 @@ Rectangle {
     property bool isMeshModel: false
 
     // 当前拾取模式（0..4，对应 PickMode 枚举），由底层 GraphicsViewport 写回，供拾取下拉框回显。
-    property int pickMode: 0
+    // 默认面选择（2）。
+    property int pickMode: 2
 
     // 把「导入模型」请求转发给底层 OCCT 视口（占位 Canvas 无此方法时忽略）
     function importFile(url) {

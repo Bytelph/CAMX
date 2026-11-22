@@ -2,119 +2,120 @@ import QtQuick
 import QtQuick.Controls
 import CAMX.Theme 1.0
 
-// 显示模式切换下拉框：位于「视图」标签的 ribbon 工具栏中，切换当前模型的显示模式。
-// 由父级绑定 viewport（Viewport）与 displayMode（当前生效模式），用户选择后调用
-// viewport.setDisplayMode(mode) 转发给 GraphicsViewport。
-// 样式对齐 ribbon 的浅色工具条（白色底、深色文字），与原先悬浮在 3D 视口上的深色样式不同。
-ComboBox {
-    id: combo
+// 显示模式切换：图标按钮组（形状 4 项 + 网格 4 项），当前项琥珀色高亮。
+// 由父级绑定 viewport（Viewport）、displayMode（当前生效模式 0..7）以及
+// shapeModes / meshModes（Ribbon 上的模式列表，每项含 { text, mode, icon }），
+// 点击后调用 viewport.setDisplayMode(mode) 转发给 GraphicsViewport。取代原来的下拉框。
+Item {
+    id: root
 
-    // 目标视口（Viewport）：用于调用 setDisplayMode
     property var viewport: null
-    // 当前显示模式（0..7，对应 Mayo::DisplayMode），由视口回写后同步选中项
+    // 当前显示模式（0..7，对应 Mayo::DisplayMode），由视口回写后同步高亮
     property int displayMode: 0
+    property var shapeModes: []   // [{ text, mode, icon }] 形状 0..3
+    property var meshModes: []    // [{ text, mode, icon }] 网格 4..7
 
-    width: 176
-    height: 30
+    width: col.implicitWidth
+    height: col.implicitHeight
 
-    model: [
-        { text: "形状 · 线框",      mode: 0 },
-        { text: "形状 · 隐藏线",    mode: 1 },
-        { text: "形状 · 着色",      mode: 2 },
-        { text: "形状 · 着色带边",  mode: 3 },
-        { text: "网格 · 线框",      mode: 4 },
-        { text: "网格 · 着色",      mode: 5 },
-        { text: "网格 · 实体",      mode: 6 },
-        { text: "网格 · 收缩",      mode: 7 }
-    ]
-    textRole: "text"
+    Column {
+        id: col
+        spacing: 2
 
-    // 视口回写显示模式时同步选中项（用处理器而非绑定，避免与用户选择互相覆盖）
-    onDisplayModeChanged: currentIndex = displayMode
+        // —— 形状行 ——
+        Row {
+            spacing: 4
+            Text {
+                text: "形状"
+                width: 22
+                anchors.verticalCenter: parent.verticalCenter
+                color: Theme.textMuted
+                font.pixelSize: 10
+                font.family: Theme.fontFamily
+            }
+            Repeater {
+                model: root.shapeModes
+                delegate: Rectangle {
+                    width: 34
+                    height: 34
+                    radius: 4
+                    readonly property bool selected: root.displayMode === modelData.mode
+                    color: selected ? "#fdf3e3" : (btnMouse.containsMouse ? Theme.bgElevated : "transparent")
+                    border.color: selected ? "#d97706" : "transparent"
+                    border.width: selected ? 1 : 0
+                    Behavior on color { ColorAnimation { duration: 120 } }
 
-    // 组件创建时按初始 displayMode 同步一次选中项
-    Component.onCompleted: currentIndex = displayMode
+                    ToolIcon {
+                        anchors.centerIn: parent
+                        name: modelData.icon
+                        size: 20
+                        color: selected ? "#d97706" : (btnMouse.containsMouse ? Theme.textBright : Theme.textDim)
+                    }
 
-    onActivated: function(index) {
-        var item = model[index]
-        if (item && viewport && viewport.setDisplayMode)
-            viewport.setDisplayMode(item.mode)
-    }
+                    ToolTip.visible: btnMouse.containsMouse
+                    ToolTip.text: "形状 · " + modelData.text
+                    ToolTip.delay: 400
 
-    // 浅色圆角背景（匹配 ribbon 白色工具条）
-    background: Rectangle {
-        radius: 4
-        color: combo.activeFocus ? "#ffffff" : "#fdfdfd"
-        border.color: combo.activeFocus ? "#d97706" : "#c8c8c8"
-        border.width: 1
-    }
-
-    contentItem: Text {
-        leftPadding: 12
-        rightPadding: combo.indicator.width + 10
-        text: combo.displayText
-        color: "#2a2a2a"
-        font.pixelSize: 12
-        font.family: Theme.fontFamily
-        verticalAlignment: Text.AlignVCenter
-        elide: Text.ElideRight
-    }
-
-    indicator: Canvas {
-        x: combo.width - width - 10
-        y: (combo.height - height) / 2
-        width: 10
-        height: 6
-        onPaint: {
-            var ctx = getContext("2d")
-            ctx.strokeStyle = "#777777"
-            ctx.lineWidth = 1.5
-            ctx.beginPath()
-            ctx.moveTo(1, 1)
-            ctx.lineTo(5, 5)
-            ctx.lineTo(9, 1)
-            ctx.stroke()
-        }
-    }
-
-    popup: Popup {
-        y: combo.height + 4
-        width: combo.width
-        padding: 4
-        implicitHeight: contentItem.implicitHeight
-
-        contentItem: ListView {
-            clip: true
-            implicitHeight: contentHeight
-            model: combo.popup.visible ? combo.delegateModel : null
-            currentIndex: combo.highlightedIndex
+                    MouseArea {
+                        id: btnMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            if (root.viewport && root.viewport.setDisplayMode)
+                                root.viewport.setDisplayMode(modelData.mode)
+                        }
+                    }
+                }
+            }
         }
 
-        background: Rectangle {
-            radius: 6
-            color: "#ffffff"
-            border.color: "#d0d0d0"
-            border.width: 1
-        }
-    }
+        // —— 网格行 ——
+        Row {
+            spacing: 4
+            Text {
+                text: "网格"
+                width: 22
+                anchors.verticalCenter: parent.verticalCenter
+                color: Theme.textMuted
+                font.pixelSize: 10
+                font.family: Theme.fontFamily
+            }
+            Repeater {
+                model: root.meshModes
+                delegate: Rectangle {
+                    width: 34
+                    height: 34
+                    radius: 4
+                    readonly property bool selected: root.displayMode === modelData.mode
+                    color: selected ? "#fdf3e3" : (btnMouse.containsMouse ? Theme.bgElevated : "transparent")
+                    border.color: selected ? "#d97706" : "transparent"
+                    border.width: selected ? 1 : 0
+                    Behavior on color { ColorAnimation { duration: 120 } }
 
-    delegate: ItemDelegate {
-        width: combo.width - 8
-        height: 28
-        highlighted: combo.highlightedIndex === index
+                    ToolIcon {
+                        anchors.centerIn: parent
+                        name: modelData.icon
+                        size: 20
+                        color: selected ? "#d97706" : (btnMouse.containsMouse ? Theme.textBright : Theme.textDim)
+                    }
 
-        contentItem: Text {
-            text: modelData.text
-            color: highlighted ? "#d97706" : "#2a2a2a"
-            font.pixelSize: 12
-            font.family: Theme.fontFamily
-            verticalAlignment: Text.AlignVCenter
-            elide: Text.ElideRight
-        }
+                    ToolTip.visible: btnMouse.containsMouse
+                    ToolTip.text: "网格 · " + modelData.text
+                    ToolTip.delay: 400
 
-        background: Rectangle {
-            radius: 4
-            color: highlighted ? "#fdf3e3" : "transparent"
+                    MouseArea {
+                        id: btnMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            if (root.viewport && root.viewport.setDisplayMode)
+                                root.viewport.setDisplayMode(modelData.mode)
+                        }
+                    }
+                }
+            }
         }
     }
 }

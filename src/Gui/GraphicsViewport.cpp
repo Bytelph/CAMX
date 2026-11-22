@@ -39,6 +39,7 @@
 #include <Prs3d_ShadingAspect.hxx>
 #include <Prs3d_TypeOfHighlight.hxx>
 #include <Quantity_Color.hxx>
+#include <StdSelect_ViewerSelector3d.hxx>
 #include <TDocStd_Document.hxx>
 #include <V3d_TypeOfOrientation.hxx>
 #include <V3d_View.hxx>
@@ -794,17 +795,20 @@ private:
 
         QString coord;
         if (!cubeOwner) {
-            // 命中模型（有检测到的 owner、非空白处）：用 Mayo 的 V3dView_to3dPosition 计算
-            // 鼠标处的 3D 世界坐标（投影到过视图中心、垂直于视线方向的视图平面上），供状态栏
-            // 显示。它比直接读选择器 PickedPoint 更稳：不依赖 MoveTo 是否填充了选择器内部
-            // 拾取表、也不受 clearSelection() 清检测状态的影响。
-            if (!owner.IsNull()) {
-                const gp_Pnt p = Mayo::GraphicsUtils::V3dView_to3dPosition(m_view, px, py);
+            // 参考 Mayo：用主选择器做一次「静默拾取」，拿到鼠标处模型表面上的真实 3D 点。
+            // 命中模型时用 PickedPoint(1)（表面实际坐标）；否则退回 V3dView_to3dPosition
+            // 的视图中心平面投影。这样状态栏显示的 XYZ 才是模型表面真实坐标，而非中心平面投影。
+            const auto& selector = m_scene->mainSelector();
+            selector->Pick(px, py, m_view);
+            const gp_Pnt p = selector->NbPicked() > 0
+                ? selector->PickedPoint(1)
+                : Mayo::GraphicsUtils::V3dView_to3dPosition(m_view, px, py);
+
+            if (!owner.IsNull())
                 coord = QString("X: %1    Y: %2    Z: %3")
                             .arg(p.X(), 0, 'f', 3)
                             .arg(p.Y(), 0, 'f', 3)
                             .arg(p.Z(), 0, 'f', 3);
-            }
             // 非视图立方体：无拾取模式时清除 MoveTo 触发的动态高亮（模型/坐标轴悬停不高亮）。
             // 拾取模式下保留动态高亮（橙色），作为「鼠标拾上去高亮」的提示，不在此清除。
             // 悬停在视图立方体上时不调用 clearSelection —— 保留检测状态，让 AIS_ViewCube
@@ -977,7 +981,7 @@ private:
     bool m_pickDragRotating = false;    // 拾取模式下左键拖动是否已超过阈值进入旋转
     QPointF m_pickPressPos;             // 拾取模式下左键按下位置（逻辑像素），用于点击/拖动判定
     bool m_renderedOnce = false;
-    int m_pickMode = 0;                     // 当前拾取模式（0..4，对应 PickMode 枚举，默认无）
+    int m_pickMode = int(GraphicsViewport::PickFace);   // 当前拾取模式（0..4，对应 PickMode 枚举，默认面）
 
     // 视图切换相机动画（Mayo 式平滑过渡）：起止相机在渲染线程计算，进度由 GUI 线程动画驱动。
     GraphicsViewport* m_viewport = nullptr;                         // 用于经 QueuedConnection 触发 GUI 线程动画

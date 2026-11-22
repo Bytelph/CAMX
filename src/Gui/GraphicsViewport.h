@@ -51,7 +51,7 @@ public:
 
     // 拾取模式（视图工具栏「拾取」下拉框）：无 / 体 / 面 / 边 / 点。
     enum PickMode {
-        PickNone = 0,   // 无（默认：左键旋转，不拾取）
+        PickNone = 0,   // 无（左键旋转，不拾取）
         PickBody,       // 体
         PickFace,       // 面
         PickEdge,       // 边
@@ -146,5 +146,5 @@ private:
     qreal m_importProgress = -1.0;       // 模型导入进度：-1 = 空闲/隐藏，0..1 = 进行中
     int m_displayMode = 0;               // 当前显示模式（0..7，对应 DisplayMode 枚举，默认线框）
     bool m_isMeshModel = false;          // 当前模型是否为网格型（MeshVS_Mesh）
-    int m_pickMode = 0;                  // 当前拾取模式（0..4，对应 PickMode 枚举，默认无）
+    int m_pickMode = PickFace;           // 当前拾取模式（0..4，对应 PickMode 枚举，默认面）
 };

@@ -7,6 +7,7 @@ Item {
     property bool current: false
     property var groups: []   // [{ name: string, actions: [string], widget?: string }]
     property var viewport: null   // 透传给工具组（如显示模式下拉框）
+    property var host: null       // 所属 Ribbon（提供图标映射与动作分发）
 
     width: parent.width
     height: parent.height
@@ -37,6 +38,7 @@ Item {
                 actions: modelData.actions ? modelData.actions : []
                 widget: modelData.widget ? modelData.widget : ""
                 viewport: page.viewport
+                host: page.host
                 showDivider: index > 0
             }
         }

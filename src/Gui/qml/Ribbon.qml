@@ -1,7 +1,9 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Window
+import QtQml
 import CAMX.Theme 1.0
+import CAMX.WindowManager 1.0
 
 // 工作区 ribbon（现代 Word 风格）：
 //   第一行 = 标题栏（应用名 + 快速操作 + 拖动区 + 窗口控制按钮）
@@ -14,6 +16,7 @@ Rectangle {
     property var viewport: null               // 中央 3D 视口（Viewport），供「视图」标签的显示模式下拉框调用
     property string projectName: "未命名.ccpj"   // 当前项目名（M0 占位，待 App 文档模块接入后绑定真实项目）
     property bool collapsed: false               // ribbon 收起/展开：收起时隐藏第三行工具组
+    property var collapsedEntries: []            // 收起态下拉菜单当前标签页的条目（共享菜单的模型）
     height: collapsed ? 68 : 188   // 标题栏 40 + 标签栏 28 + 内容区 120（收起时内容区为 0）
     Behavior on height { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
     // Win11 标题栏风格的清淡纵向渐变（第一二三行共用）
@@ -55,6 +58,164 @@ Rectangle {
             { name: "在线", actions: ["官网", "更新", "反馈"] }
         ]}
     ]
+
+    // —— 显示/拾取模式选项（显示模式现为图标切换，选项同时供收起态下拉菜单使用）——
+    // 显示模式拆成形状（DisplayMode 0..3）与网格（DisplayMode 4..7）两个子类，
+    // 收起态菜单里再加「形状 ·」/「网格 ·」前缀以区分来源。
+    property var shapeModes: [
+        { text: "线框",     mode: 0, icon: "disp_wire" },
+        { text: "隐藏线",   mode: 1, icon: "disp_hidden" },
+        { text: "着色",     mode: 2, icon: "disp_shaded" },
+        { text: "着色带边", mode: 3, icon: "disp_shadeedge" }
+    ]
+    property var meshModes: [
+        { text: "线框", mode: 4, icon: "disp_meshwire" },
+        { text: "着色", mode: 5, icon: "disp_meshshade" },
+        { text: "实体", mode: 6, icon: "disp_solid" },
+        { text: "收缩", mode: 7, icon: "disp_shrink" }
+    ]
+    property var pickModes: [
+        { text: "无", mode: 0 },
+        { text: "体", mode: 1 },
+        { text: "面", mode: 2 },
+        { text: "边", mode: 3 },
+        { text: "点", mode: 4 }
+    ]
+
+    // 动作文字 → 图标名映射（ribbon 展开态工具按钮与收起态下拉菜单共用）
+    function iconForAction(text) {
+        switch (text) {
+        case "新建项目": return "new"
+        case "导入模型": return "import"
+        case "保存":     return "save"
+        case "另存为":   return "saveas"
+        case "导出模型": return "export"
+        case "CLData":   return "cldata"
+
+        case "适应":     return "fit"
+        case "平移":     return "pan"
+        case "旋转":     return "rotate"
+        case "缩放":     return "zoom"
+        case "网格":     return "grid"
+        case "坐标系":   return "axis"
+        case "阴影":     return "shade"
+        case "线框":     return "wire"
+        case "前视":     return "front"
+        case "俯视":     return "top"
+        case "侧视":     return "side"
+        case "等轴测":   return "cube"
+
+        case "新建工序": return "newop"
+        case "复制":     return "copy"
+        case "粘贴":     return "paste"
+        case "删除":     return "delete"
+        case "面铣":     return "face"
+        case "型腔":     return "pocket"
+        case "轮廓":     return "contour"
+        case "钻孔":     return "drill"
+        case "平行":     return "parallel"
+        case "等高":     return "zlevel"
+        case "环绕":     return "spiral"
+        case "清根":     return "rest"
+
+        case "开始":     return "play"
+        case "暂停":     return "pause"
+        case "重置":     return "reset"
+        case "余量分析": return "stock"
+        case "切削力":   return "force"
+        case "变形":     return "deform"
+        case "温度":     return "temp"
+        case "过切":     return "gouge"
+        case "碰撞":     return "collide"
+
+        case "单位":     return "units"
+        case "语言":     return "lang"
+        case "路径":     return "path"
+        case "刀具库":   return "toollib"
+        case "机床库":   return "machlib"
+        case "后处理":   return "post"
+        case "默认参数": return "sliders"
+        case "公差":     return "tol"
+
+        case "文档":     return "doc"
+        case "快捷键":   return "keyboard"
+        case "关于":     return "info"
+        case "官网":     return "lang"
+        case "更新":     return "reset"
+        case "反馈":     return "chat"
+        default:         return ""
+        }
+    }
+
+    // 动作点击分发：ribbon 展开态按钮与收起态下拉菜单共用
+    function triggerAction(text) {
+        if (text === "新建项目")
+            WindowManager.openNewWindow()
+        else if (text === "导入模型")
+            WindowManager.importModel(ribbon.target)
+        else if (text === "导出模型")
+            WindowManager.exportModel(ribbon.target)
+        else
+            console.log("操作：" + text + "（待接入）")
+    }
+
+    // 把某个标签页的 groups 展平为收起态下拉菜单条目：
+    // { type:"header", text } 分组标题；{ type:"action", text } 常规动作；
+    // { type:"mode", target, text, mode } 显示/拾取模式项
+    function buildMenuModel(tab) {
+        var list = []
+        for (var g = 0; g < tab.groups.length; g++) {
+            var group = tab.groups[g]
+            list.push({ type: "header", text: group.name })
+            if (group.widget === "displayMode") {
+                for (var i = 0; i < ribbon.shapeModes.length; i++)
+                    list.push({ type: "mode", target: "displayMode", text: "形状 · " + ribbon.shapeModes[i].text, mode: ribbon.shapeModes[i].mode })
+                for (var j = 0; j < ribbon.meshModes.length; j++)
+                    list.push({ type: "mode", target: "displayMode", text: "网格 · " + ribbon.meshModes[j].text, mode: ribbon.meshModes[j].mode })
+            } else if (group.widget === "pickMode") {
+                for (var j = 0; j < ribbon.pickModes.length; j++)
+                    list.push({ type: "mode", target: "pickMode", text: ribbon.pickModes[j].text, mode: ribbon.pickModes[j].mode })
+            } else if (group.actions) {
+                for (var a = 0; a < group.actions.length; a++)
+                    list.push({ type: "action", text: group.actions[a] })
+            }
+        }
+        return list
+    }
+
+    // 测量菜单文字宽度（用于让收起态菜单按最宽条目自适应宽度）
+    TextMetrics {
+        id: menuMetrics
+        font.pixelSize: 12
+        font.family: Theme.fontFamily
+    }
+
+    // 在标签栏下方弹出收起态菜单：宽度按最宽条目自适应，高度按条目累加（超长时限高内部滚动）
+    function showCollapsedMenu(tab, x, y) {
+        var entries = ribbon.buildMenuModel(tab)
+        collapsedMenu.entries = entries
+
+        // 宽度 = 最宽条目（左留白 8 + [图标 16 + 间距 6] + 文字 + 右留白 10）
+        var w = 0
+        for (var i = 0; i < entries.length; i++) {
+            menuMetrics.text = entries[i].text
+            var extra = entries[i].type === "header" ? 0 : (16 + 6)
+            var itemW = 8 + extra + menuMetrics.advanceWidth + 10
+            if (itemW > w) w = itemW
+        }
+        collapsedMenu.width = Math.max(120, w) + collapsedMenu.padding * 2
+
+        // 高度 = 各条目累加（标题 16 / 工具项 22）；若超过标签栏下方可用空间则限高（内部滚动）
+        var h = 0
+        for (var j = 0; j < entries.length; j++)
+            h += entries[j].type === "header" ? 16 : 22
+        var avail = (ribbon.target && ribbon.target.height) ? ribbon.target.height - y - 12 : 400
+        collapsedMenu.height = Math.min(h + collapsedMenu.padding * 2, avail)
+
+        collapsedMenu.x = x
+        collapsedMenu.y = y
+        collapsedMenu.open()
+    }
 
     Column {
         anchors.fill: parent
@@ -231,6 +392,7 @@ Rectangle {
                 Repeater {
                     model: ribbon.tabs
                     Rectangle {
+                        id: tabRect
                         width: tabText.implicitWidth + 28
                         height: 28
                         radius: 4
@@ -262,7 +424,16 @@ Rectangle {
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: tabs.currentIndex = index
+                            onClicked: {
+                                // 收起时点击标签 → 弹出传统下拉菜单（位于标签栏正下方）；
+                                // 展开时 → 切换 ribbon 页。两种情况都更新当前标签，
+                                // 使标签栏底部的高亮下划线跟随点击移动。
+                                tabs.currentIndex = index
+                                if (ribbon.collapsed) {
+                                    var p = tabRect.mapToItem(ribbon, 0, tabRect.height)
+                                    ribbon.showCollapsedMenu(modelData, p.x, p.y + 8)
+                                }
+                            }
                         }
                     }
                 }
@@ -329,7 +500,94 @@ Rectangle {
                         current: index === tabs.currentIndex
                         groups: modelData.groups
                         viewport: ribbon.viewport
+                        host: ribbon
                     }
+                }
+            }
+        }
+    }
+
+    // —— 收起态下拉菜单（传统菜单栏）：单个共享 Popup，位置/尺寸/内容在点击标签时动态设置 ——
+    Popup {
+        id: collapsedMenu
+        property var entries: []
+        padding: 2
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+        background: Rectangle {
+            radius: 6
+            color: "#ffffff"
+            border.color: "#d0d0d0"
+            border.width: 1
+        }
+
+        contentItem: ListView {
+            id: menuList
+            clip: true
+            model: collapsedMenu.entries
+            boundsBehavior: Flickable.StopAtBounds
+            delegate: collapsedMenuDelegate
+            ScrollBar.vertical: ScrollBar { }
+        }
+    }
+
+    // 收起态菜单条目：紧凑的一行（图标 + 文字），悬停高亮
+    Component {
+        id: collapsedMenuDelegate
+        Item {
+            id: rowItem
+            width: collapsedMenu.width - collapsedMenu.padding * 2
+            height: modelData.type === "header" ? 16 : 22
+
+            Rectangle {
+                anchors.fill: parent
+                radius: 3
+                color: (modelData.type !== "header" && rowMouse.containsMouse) ? "#fdf3e3" : "transparent"
+            }
+
+            Row {
+                anchors.left: parent.left
+                anchors.leftMargin: 8
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 6
+
+                ToolIcon {
+                    width: modelData.type === "header" ? 0 : 16
+                    height: 16
+                    anchors.verticalCenter: parent.verticalCenter
+                    name: modelData.type === "action" ? ribbon.iconForAction(modelData.text) : ""
+                    color: rowMouse.containsMouse ? "#d97706" : "#6a6a6a"
+                }
+
+                Text {
+                    text: modelData.text
+                    color: modelData.type === "header" ? "#888888"
+                         : (rowMouse.containsMouse ? "#d97706" : "#2a2a2a")
+                    font.pixelSize: modelData.type === "header" ? 10 : 12
+                    font.bold: modelData.type === "header"
+                    font.family: Theme.fontFamily
+                    verticalAlignment: Text.AlignVCenter
+                }
+            }
+
+            MouseArea {
+                id: rowMouse
+                anchors.fill: parent
+                hoverEnabled: true
+                acceptedButtons: Qt.LeftButton
+                cursorShape: Qt.PointingHandCursor
+                enabled: modelData.type !== "header"
+                onClicked: {
+                    if (modelData.type === "action") {
+                        ribbon.triggerAction(modelData.text)
+                    } else if (modelData.type === "mode") {
+                        var vp = ribbon.viewport
+                        if (modelData.target === "displayMode" && vp && vp.setDisplayMode)
+                            vp.setDisplayMode(modelData.mode)
+                        else if (modelData.target === "pickMode" && vp && vp.setPickMode)
+                            vp.setPickMode(modelData.mode)
+                    }
+                    collapsedMenu.close()
                 }
             }
         }

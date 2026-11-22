@@ -8,8 +8,9 @@ import CAMX.NotificationManager 1.0
 // 每个窗口拥有独立的 ribbon / 3D 视口 / 状态栏 / 项目树与无边框窗口控制。
 ApplicationWindow {
     id: root
-    width: 1440
-    height: 900
+    // 默认窗口大小为当前屏幕的 75%（每次新建窗口均按此尺寸打开）
+    width: Math.round(Screen.width * 0.75)
+    height: Math.round(Screen.height * 0.75)
     title: "CAMX — 计算机辅助制造"
     color: Theme.bg
 
