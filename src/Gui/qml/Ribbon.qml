@@ -35,7 +35,7 @@ Rectangle {
             { name: "视角", actions: ["适应", "平移", "旋转", "缩放"] },
             { name: "显示模式", widget: "displayMode" },
             { name: "拾取", widget: "pickMode" },
-            { name: "显示", actions: ["网格", "坐标系", "阴影", "线框"] },
+            { name: "显示", widget: "display" },
             { name: "导航", actions: ["前视", "俯视", "侧视", "等轴测"] }
         ]},
         { title: "AICAM", groups: [
@@ -98,7 +98,6 @@ Rectangle {
         case "缩放":     return "zoom"
         case "网格":     return "grid"
         case "坐标系":   return "axis"
-        case "阴影":     return "shade"
         case "线框":     return "wire"
         case "前视":     return "front"
         case "俯视":     return "top"
@@ -159,6 +158,29 @@ Rectangle {
             console.log("操作：" + text + "（待接入）")
     }
 
+    // 「显示」开关当前是否打开（供收起态下拉菜单回显勾选态）
+    function isDisplayToggleOn(key) {
+        var vp = ribbon.viewport
+        if (!vp)
+            return false
+        if (key === "grid")
+            return !!vp.gridVisible
+        if (key === "origin")
+            return !!vp.originVisible
+        return false
+    }
+
+    // 切换「显示」开关（收起态下拉菜单与展开态按钮共用）
+    function toggleDisplay(key) {
+        var vp = ribbon.viewport
+        if (!vp)
+            return
+        if (key === "grid" && vp.setGridVisible)
+            vp.setGridVisible(!vp.gridVisible)
+        else if (key === "origin" && vp.setOriginVisible)
+            vp.setOriginVisible(!vp.originVisible)
+    }
+
     // 把某个标签页的 groups 展平为收起态下拉菜单条目：
     // { type:"header", text } 分组标题；{ type:"action", text } 常规动作；
     // { type:"mode", target, text, mode } 显示/拾取模式项
@@ -175,6 +197,9 @@ Rectangle {
             } else if (group.widget === "pickMode") {
                 for (var j = 0; j < ribbon.pickModes.length; j++)
                     list.push({ type: "mode", target: "pickMode", text: ribbon.pickModes[j].text, mode: ribbon.pickModes[j].mode })
+            } else if (group.widget === "display") {
+                list.push({ type: "toggle", key: "grid", text: "网格" })
+                list.push({ type: "toggle", key: "origin", text: "坐标系" })
             } else if (group.actions) {
                 for (var a = 0; a < group.actions.length; a++)
                     list.push({ type: "action", text: group.actions[a] })
@@ -539,6 +564,9 @@ Rectangle {
             width: collapsedMenu.width - collapsedMenu.padding * 2
             height: modelData.type === "header" ? 16 : 22
 
+            readonly property bool isToggle: modelData.type === "toggle"
+            readonly property bool toggleChecked: isToggle && ribbon.isDisplayToggleOn(modelData.key)
+
             Rectangle {
                 anchors.fill: parent
                 radius: 3
@@ -560,9 +588,20 @@ Rectangle {
                 }
 
                 Text {
+                    visible: rowItem.isToggle
+                    width: rowItem.isToggle ? 14 : 0
+                    text: rowItem.toggleChecked ? "✓" : ""
+                    color: "#d97706"
+                    font.pixelSize: 12
+                    font.family: Theme.fontFamily
+                    verticalAlignment: Text.AlignVCenter
+                }
+
+                Text {
                     text: modelData.text
                     color: modelData.type === "header" ? "#888888"
-                         : (rowMouse.containsMouse ? "#d97706" : "#2a2a2a")
+                         : (rowItem.toggleChecked ? "#d97706"
+                         : (rowMouse.containsMouse ? "#d97706" : "#2a2a2a"))
                     font.pixelSize: modelData.type === "header" ? 10 : 12
                     font.bold: modelData.type === "header"
                     font.family: Theme.fontFamily
@@ -586,6 +625,8 @@ Rectangle {
                             vp.setDisplayMode(modelData.mode)
                         else if (modelData.target === "pickMode" && vp && vp.setPickMode)
                             vp.setPickMode(modelData.mode)
+                    } else if (modelData.type === "toggle") {
+                        ribbon.toggleDisplay(modelData.key)
                     }
                     collapsedMenu.close()
                 }

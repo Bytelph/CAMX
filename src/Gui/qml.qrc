@@ -25,6 +25,7 @@
         <file>qml/OccViewport.qml</file>
         <file>qml/DisplayModeSelector.qml</file>
         <file>qml/PickModeSelector.qml</file>
+        <file>qml/DisplayToggles.qml</file>
         <file>qml/StatusBar.qml</file>
     </qresource>
 </RCC>

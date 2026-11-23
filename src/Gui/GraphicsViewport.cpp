@@ -15,19 +15,28 @@
 #include <AIS_Trihedron.hxx>
 #include <AIS_ViewCube.hxx>
 #include <Aspect_GradientFillMethod.hxx>
+#include <Aspect_GridDrawMode.hxx>
+#include <Aspect_GridType.hxx>
 #include <Aspect_NeutralWindow.hxx>
 #include <Aspect_TypeOfLine.hxx>
 #include <Aspect_TypeOfTriedronPosition.hxx>
 #include <Aspect_TypeOfHighlightMethod.hxx>
+#include <Bnd_Box.hxx>
+#include <BRepBndLib.hxx>
+#include <BRepBuilderAPI_MakeFace.hxx>
 #include <Graphic3d_AspectFillArea3d.hxx>
 #include <Graphic3d_Camera.hxx>
+#include <Graphic3d_CLight.hxx>
 #include <Graphic3d_MaterialAspect.hxx>
 #include <Graphic3d_NameOfMaterial.hxx>
+#include <Graphic3d_RenderingParams.hxx>
 #include <Graphic3d_TransformPers.hxx>
 #include <Graphic3d_TransModeFlags.hxx>
+#include <Graphic3d_TypeOfLightSource.hxx>
 #include <Graphic3d_ZLayerId.hxx>
 #include <Geom_Axis2Placement.hxx>
 #include <gp.hxx>
+#include <gp_Pln.hxx>
 #include <NCollection_Vec2.hxx>
 #include <MeshVS_Mesh.hxx>
 #include <MeshVS_SelectionModeFlags.hxx>
@@ -41,8 +50,10 @@
 #include <Quantity_Color.hxx>
 #include <StdSelect_ViewerSelector3d.hxx>
 #include <TDocStd_Document.hxx>
+#include <TopoDS_Face.hxx>
 #include <V3d_TypeOfOrientation.hxx>
 #include <V3d_View.hxx>
+#include <V3d_Viewer.hxx>
 
 #include <QEasingCurve>
 #include <QFileInfo>
@@ -155,6 +166,8 @@ public:
         viewport->m_input->exportPath.clear();   // 消费待导出请求
         viewport->m_input->pendingDisplayMode = -1;   // 消费待切换显示模式请求
         viewport->m_input->pendingPickMode = -1;      // 消费待切换拾取模式请求
+        viewport->m_input->pendingGridVisible = -1;   // 消费待切换网格显示请求
+        viewport->m_input->pendingOriginVisible = -1; // 消费待切换坐标系显示请求
     }
 
     void render() override
@@ -194,6 +207,16 @@ public:
         if (m_input.pendingPickMode >= 0) {
             this->applyPickModeInternal(m_input.pendingPickMode);
             m_input.pendingPickMode = -1;
+        }
+
+        // 处理「显示」开关（网格 / 坐标系）请求（QML 写入，渲染线程应用后回写生效状态）
+        if (m_input.pendingGridVisible >= 0) {
+            this->applyGridVisibility(m_input.pendingGridVisible != 0);
+            m_input.pendingGridVisible = -1;
+        }
+        if (m_input.pendingOriginVisible >= 0) {
+            this->applyOriginVisibility(m_input.pendingOriginVisible != 0);
+            m_input.pendingOriginVisible = -1;
         }
 
         this->applyNavigation();
@@ -643,6 +666,56 @@ private:
         if (m_viewport)
             QMetaObject::invokeMethod(m_viewport, [vp = m_viewport, mesh]() {
                 vp->updateIsMeshModel(mesh);
+            }, Qt::QueuedConnection);
+    }
+
+    // 在渲染线程应用网格显示状态：激活/停用 V3d_Viewer 的矩形网格（铺在 XY 平面）。
+    void applyGridVisibility(bool on)
+    {
+        if (m_scene) {
+            const auto& viewer = m_scene->v3dViewer();
+            if (!viewer.IsNull()) {
+                if (on) {
+                    // 先设值再激活，避免依赖 V3d_Viewer 默认网格参数。
+                    viewer->SetRectangularGridValues(0.0, 0.0, 10.0, 10.0, 0.0);
+                    viewer->SetRectangularGridGraphicValues(1000.0, 1000.0, 0.0);
+                    viewer->ActivateGrid(Aspect_GT_Rectangular, Aspect_GDM_Lines);
+                }
+                else {
+                    viewer->DeactivateGrid();
+                }
+            }
+        }
+        if (!m_view.IsNull())
+            m_view->Invalidate();
+        this->reportGridVisible(on);
+    }
+
+    // 在渲染线程应用原点坐标系显示状态：显示/隐藏原点 AIS_Trihedron。
+    void applyOriginVisibility(bool on)
+    {
+        if (m_scene && !m_originTrihedron.IsNull())
+            m_scene->setObjectVisible(m_originTrihedron, on);
+        if (!m_view.IsNull())
+            m_view->Invalidate();
+        this->reportOriginVisible(on);
+    }
+
+    // 把生效的网格显示状态跨线程写回 GUI 线程，供「显示」工具栏「网格」开关回显
+    void reportGridVisible(bool on)
+    {
+        if (m_viewport)
+            QMetaObject::invokeMethod(m_viewport, [vp = m_viewport, on]() {
+                vp->updateGridVisible(on);
+            }, Qt::QueuedConnection);
+    }
+
+    // 把生效的原点坐标系显示状态跨线程写回 GUI 线程
+    void reportOriginVisible(bool on)
+    {
+        if (m_viewport)
+            QMetaObject::invokeMethod(m_viewport, [vp = m_viewport, on]() {
+                vp->updateOriginVisible(on);
             }, Qt::QueuedConnection);
     }
 
@@ -1105,6 +1178,22 @@ void GraphicsViewport::updatePickMode(int mode)
     emit pickModeChanged();
 }
 
+void GraphicsViewport::updateGridVisible(bool on)
+{
+    if (m_gridVisible == on)
+        return;
+    m_gridVisible = on;
+    emit gridVisibleChanged();
+}
+
+void GraphicsViewport::updateOriginVisible(bool on)
+{
+    if (m_originVisible == on)
+        return;
+    m_originVisible = on;
+    emit originVisibleChanged();
+}
+
 void GraphicsViewport::setDisplayMode(int mode)
 {
     // QML 下拉框请求切换：写入待处理值并触发渲染线程应用。
@@ -1116,6 +1205,20 @@ void GraphicsViewport::setPickMode(int mode)
 {
     // QML 拾取下拉框请求切换：写入待处理值并触发渲染线程应用。
     m_input->pendingPickMode = mode;
+    update();
+}
+
+void GraphicsViewport::setGridVisible(bool on)
+{
+    // QML「显示」工具栏「网格」开关：写入待处理值并触发渲染线程应用。
+    m_input->pendingGridVisible = on ? 1 : 0;
+    update();
+}
+
+void GraphicsViewport::setOriginVisible(bool on)
+{
+    // QML「显示」工具栏「坐标系」开关：写入待处理值并触发渲染线程应用。
+    m_input->pendingOriginVisible = on ? 1 : 0;
     update();
 }
 

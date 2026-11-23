@@ -9,6 +9,7 @@ import CAMX.Theme 1.0
 //   ""        = 常规按钮组（buttonsRow）
 //   "displayMode" = 显示模式图标按钮组（形状 + 网格，选项来自 host.shapeModes/host.meshModes）
 //   "pickMode"  = 拾取模式图标按钮组（PickModeSelector）
+//   "display"   = 显示开关组（网格 / 坐标系，DisplayToggles）
 Item {
     id: group
     property string title: ""
@@ -36,7 +37,8 @@ Item {
     Item {
         id: contentArea
         width: group.widget === "displayMode" ? displayModeSelector.width
-             : (group.widget === "pickMode" ? pickModeSelector.width : buttonsRow.width)
+             : (group.widget === "pickMode" ? pickModeSelector.width
+             : (group.widget === "display" ? displayToggles.width : buttonsRow.width))
         anchors.left: divider.right
         anchors.leftMargin: group.showDivider ? 12 : 0
         anchors.top: parent.top
@@ -64,6 +66,18 @@ Item {
             visible: group.widget === "pickMode"
             viewport: group.viewport
             pickMode: group.viewport ? group.viewport.pickMode : 2
+        }
+
+        // 显示开关组（网格 / 坐标系）
+        DisplayToggles {
+            id: displayToggles
+            anchors.top: parent.top
+            anchors.topMargin: 16
+            anchors.horizontalCenter: parent.horizontalCenter
+            visible: group.widget === "display"
+            viewport: group.viewport
+            gridVisible: group.viewport ? group.viewport.gridVisible : false
+            originVisible: group.viewport ? group.viewport.originVisible : true
         }
 
         // 按钮行（上）—— 常规工具组

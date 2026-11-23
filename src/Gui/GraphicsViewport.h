@@ -35,6 +35,10 @@ class GraphicsViewport : public QQuickFramebufferObject {
     Q_PROPERTY(bool isMeshModel READ isMeshModel NOTIFY isMeshModelChanged)
     // 当前拾取模式（0..4，对应 PickMode 枚举）：无 / 体 / 面 / 边 / 点。
     Q_PROPERTY(int pickMode READ pickMode NOTIFY pickModeChanged)
+    // 视图网格是否显示（「显示」工具栏「网格」开关），由渲染线程应用后写回。
+    Q_PROPERTY(bool gridVisible READ gridVisible NOTIFY gridVisibleChanged)
+    // 原点坐标系（AIS_Trihedron）是否显示（「显示」工具栏「坐标系」开关）。
+    Q_PROPERTY(bool originVisible READ originVisible NOTIFY originVisibleChanged)
 public:
     // 显示模式枚举（与 Mayo::DisplayMode 数值一一对应）
     enum DisplayMode {
@@ -84,11 +88,15 @@ public:
     int displayMode() const { return m_displayMode; }
     bool isMeshModel() const { return m_isMeshModel; }
     int pickMode() const { return m_pickMode; }
+    bool gridVisible() const { return m_gridVisible; }
+    bool originVisible() const { return m_originVisible; }
 
     // 由渲染线程经 QueuedConnection 调用：写回当前生效的显示模式/模型类型，供 QML 回显。
     void updateDisplayMode(int mode);
     void updateIsMeshModel(bool mesh);
     void updatePickMode(int mode);
+    void updateGridVisible(bool on);
+    void updateOriginVisible(bool on);
 
     // 导入模型（QML「导入模型」调用）：把文件路径交给渲染线程解析并替换当前显示几何。
     // 支持 STEP/IGES/BRep/STL/OBJ/PLY/VRML（按扩展名识别）。
@@ -103,6 +111,12 @@ public:
     // 切换拾取模式（QML 拾取下拉框调用）：0..4 对应 PickMode 枚举。
     Q_INVOKABLE void setPickMode(int mode);
 
+    // 显示/隐藏视图网格（QML「显示」工具栏「网格」开关调用）。
+    Q_INVOKABLE void setGridVisible(bool on);
+
+    // 显示/隐藏原点坐标系（QML「显示」工具栏「坐标系」开关调用）。
+    Q_INVOKABLE void setOriginVisible(bool on);
+
 signals:
     void cursorCoordinatesChanged();
     void importStatusChanged();
@@ -111,6 +125,8 @@ signals:
     void displayModeChanged();
     void isMeshModelChanged();
     void pickModeChanged();
+    void gridVisibleChanged();
+    void originVisibleChanged();
 
 protected:
     void mousePressEvent(QMouseEvent* event) override;
@@ -136,6 +152,8 @@ private:
         QString exportPath;              // 待导出文件的本地绝对路径（GUI 线程写入，渲染线程消费后清空）
         int pendingDisplayMode = -1;     // 待切换的显示模式（0..7，GUI 线程写入，渲染线程消费后置 -1）
         int pendingPickMode = -1;        // 待切换的拾取模式（0..4，GUI 线程写入，渲染线程消费后置 -1）
+        int pendingGridVisible = -1;     // 待切换的网格显示状态（0/1，GUI 线程写入，渲染线程消费后置 -1）
+        int pendingOriginVisible = -1;   // 待切换的原点坐标系显示状态（0/1）
     };
 
     std::unique_ptr<Input> m_input;
@@ -147,4 +165,6 @@ private:
     int m_displayMode = 0;               // 当前显示模式（0..7，对应 DisplayMode 枚举，默认线框）
     bool m_isMeshModel = false;          // 当前模型是否为网格型（MeshVS_Mesh）
     int m_pickMode = PickFace;           // 当前拾取模式（0..4，对应 PickMode 枚举，默认面）
+    bool m_gridVisible = false;          // 视图网格是否显示（默认隐藏）
+    bool m_originVisible = true;         // 原点坐标系是否显示（默认显示）
 };

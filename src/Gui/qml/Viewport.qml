@@ -29,6 +29,12 @@ Rectangle {
     // 默认面选择（2）。
     property int pickMode: 2
 
+    // 视图网格是否显示（「显示」工具栏「网格」开关）。
+    property bool gridVisible: false
+
+    // 原点坐标系是否显示（「显示」工具栏「坐标系」开关）。
+    property bool originVisible: true
+
     // 把「导入模型」请求转发给底层 OCCT 视口（占位 Canvas 无此方法时忽略）
     function importFile(url) {
         if (loader.item && loader.item.importFile)
@@ -51,6 +57,18 @@ Rectangle {
     function setPickMode(mode) {
         if (loader.item && loader.item.setPickMode)
             loader.item.setPickMode(mode)
+    }
+
+    // 把「显示/隐藏视图网格」请求转发给底层 OCCT 视口
+    function setGridVisible(on) {
+        if (loader.item && loader.item.setGridVisible)
+            loader.item.setGridVisible(on)
+    }
+
+    // 把「显示/隐藏原点坐标系」请求转发给底层 OCCT 视口
+    function setOriginVisible(on) {
+        if (loader.item && loader.item.setOriginVisible)
+            loader.item.setOriginVisible(on)
     }
 
     Loader {
@@ -83,6 +101,12 @@ Rectangle {
         }
         function onPickModeChanged() {
             viewport.pickMode = loader.item ? loader.item.pickMode : 0
+        }
+        function onGridVisibleChanged() {
+            viewport.gridVisible = loader.item ? loader.item.gridVisible : false
+        }
+        function onOriginVisibleChanged() {
+            viewport.originVisible = loader.item ? loader.item.originVisible : true
         }
     }
 
