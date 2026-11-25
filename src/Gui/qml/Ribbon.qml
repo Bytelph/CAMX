@@ -19,17 +19,15 @@ Rectangle {
     property var collapsedEntries: []            // 收起态下拉菜单当前标签页的条目（共享菜单的模型）
     height: collapsed ? 68 : 188   // 标题栏 40 + 标签栏 28 + 内容区 120（收起时内容区为 0）
     Behavior on height { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
-    // Win11 标题栏风格的清淡纵向渐变（第一二三行共用）
-    gradient: Gradient {
-        GradientStop { position: 0.0; color: "#f7f9fc" }
-        GradientStop { position: 1.0; color: "#e5ebf2" }
-    }
+    // 第二/三行（标签栏 + 工具组）背景：淡灰色；第一行标题栏另以蓝色矩形覆盖（见 titleRow）
+    color: Theme.panelBg
 
     // —— 可扩展标签数据：title = 标签名，groups = 工具组列表 ——
     property var tabs: [
         { title: "文件", groups: [
             { name: "文件操作", actions: ["新建项目", "导入模型", "保存", "另存为"] },
-            { name: "数据交换", actions: ["导出模型", "CLData"] }
+            { name: "数据交换", actions: ["导出模型", "CLData"] },
+            { name: "配置", actions: ["刀具库", "机床库", "后处理库"] }
         ]},
         { title: "视图", groups: [
             { name: "视角", actions: ["适应", "平移", "旋转", "缩放"] },
@@ -133,6 +131,7 @@ Rectangle {
         case "刀具库":   return "toollib"
         case "机床库":   return "machlib"
         case "后处理":   return "post"
+        case "后处理库": return "post"
         case "默认参数": return "sliders"
         case "公差":     return "tol"
 
@@ -154,7 +153,10 @@ Rectangle {
             WindowManager.importModel(ribbon.target)
         else if (text === "导出模型")
             WindowManager.exportModel(ribbon.target)
-        else
+        else if (text === "刀具库") {
+            if (ribbon.target && ribbon.target.openToolLibrary)
+                ribbon.target.openToolLibrary()
+        } else
             console.log("操作：" + text + "（待接入）")
     }
 
@@ -252,6 +254,12 @@ Rectangle {
             width: parent.width
             height: 40
 
+            // 第一行背景：Word 蓝（后续子项——拖动区、文字、按钮——绘制在其上）
+            Rectangle {
+                anchors.fill: parent
+                color: Theme.titleBar
+            }
+
             // 拖动窗口 / 双击最大化。
             // - 非最大化：原生标题栏拖动（含 Aero 吸附）。
             // - 最大化：向下拖 → 恢复窗口并跟随鼠标移动。
@@ -310,7 +318,7 @@ Rectangle {
             Text {
                 id: logo
                 text: "CAMX"
-                color: Theme.textBright
+                color: Theme.titleBarText
                 font.pixelSize: 13
                 font.bold: true
                 font.family: Theme.fontFamily
@@ -327,16 +335,16 @@ Rectangle {
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 2
 
-                ToolIconButton { icon: "save"; tooltip: "保存"; onClicked: console.log("保存（待接入 App 文档模块）") }
-                ToolIconButton { icon: "undo"; tooltip: "撤销"; onClicked: console.log("撤销（待接入撤销/重做）") }
-                ToolIconButton { icon: "redo"; tooltip: "重做"; onClicked: console.log("重做（待接入撤销/重做）") }
+                ToolIconButton { icon: "save"; tooltip: "保存"; titleBarStyle: true; onClicked: console.log("保存（待接入 App 文档模块）") }
+                ToolIconButton { icon: "undo"; tooltip: "撤销"; titleBarStyle: true; onClicked: console.log("撤销（待接入撤销/重做）") }
+                ToolIconButton { icon: "redo"; tooltip: "重做"; titleBarStyle: true; onClicked: console.log("重做（待接入撤销/重做）") }
             }
 
             // —— 项目名：居中显示（第一行中间）——
             Text {
                 id: projectNameText
                 text: ribbon.projectName
-                color: Theme.textBright
+                color: Theme.titleBarText
                 font.pixelSize: 13
                 font.family: Theme.fontFamily
                 anchors.horizontalCenter: parent.horizontalCenter
@@ -387,14 +395,17 @@ Rectangle {
 
                 WindowButton {
                     type: "min"
+                    titleBarStyle: true
                     onClicked: WindowController.minimize(ribbon.target)
                 }
                 WindowButton {
                     type: (ribbon.target && ribbon.target.visibility === Window.Maximized) ? "restore" : "max"
+                    titleBarStyle: true
                     onClicked: WindowController.toggleMaximize(ribbon.target)
                 }
                 WindowButton {
                     type: "close"
+                    titleBarStyle: true
                     onClicked: WindowController.close(ribbon.target)
                 }
             }

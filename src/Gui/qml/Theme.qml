@@ -29,6 +29,12 @@ QtObject {
     readonly property color selection:     dark ? "#3a5f8a" : "#b8d4f0"   // 选中
     readonly property color closeHover:    "#e81123"   // 关闭按钮悬停
 
+    // 标题栏（Word 蓝）与功能区/3D 视口背景（淡灰）——固定浅色，不随系统主题变化
+    readonly property color titleBar:      "#2b579a"   // 微软 Word 蓝
+    readonly property color titleBarHover: "#3e6fb5"   // 标题栏按钮悬停（更亮一档）
+    readonly property color titleBarText:  "#ffffff"   // 标题栏上的文字/图标
+    readonly property color panelBg:       "#f3f3f3"   // 功能区第二/三行与 3D 视口背景（淡灰）
+
     // 字体
     readonly property string fontFamily: "Microsoft YaHei"   // 微软雅黑
 }

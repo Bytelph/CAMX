@@ -5,6 +5,9 @@
 #include <AIS_DisplayMode.hxx>
 #include <AIS_InteractiveContext.hxx>
 #include <AIS_Shape.hxx>
+#include <Bnd_Box.hxx>
+#include <BRepBndLib.hxx>
+#include <BRepMesh_IncrementalMesh.hxx>
 #include <BRep_TFace.hxx>
 #include <BRep_Tool.hxx>
 #include <Geom_Surface.hxx>
@@ -69,8 +72,33 @@ GraphicsObjectPtr createMeshObject(const TopoDS_Shape& shape)
     return object;
 }
 
-// 创建 AIS_Shape（对齐 GraphicsShapeObjectDriver::createObject；此处不预先三角化，
-// 交由 AIS 自动三角化，故保留 SetAutoTriangulation 默认 true）。
+// 预三角化单个 shape：缺陷大小取包围盒对角线的 1‰（与导出路径 triangulateShape 一致）。
+// 「着色带边」的边线/轮廓线由三角化计算，保证连续（否则在原始曲面上算出的轮廓线可能
+// 破碎成虚线）。
+void meshOneShape(const TopoDS_Shape& shape)
+{
+    if (shape.IsNull())
+        return;
+
+    Bnd_Box box;
+    BRepBndLib::Add(shape, box);
+    double deflection = 0.1;
+    if (!box.IsVoid()) {
+        double xmin = 0, ymin = 0, zmin = 0, xmax = 0, ymax = 0, zmax = 0;
+        box.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+        const double diag = std::sqrt(
+            (xmax - xmin) * (xmax - xmin) +
+            (ymax - ymin) * (ymax - ymin) +
+            (zmax - zmin) * (zmax - zmin));
+        if (diag > 1e-9)
+            deflection = diag * 1e-3;
+    }
+    BRepMesh_IncrementalMesh mesher(shape, deflection, Standard_False, 0.5, Standard_True);
+    (void)mesher;
+}
+
+// 创建 AIS_Shape（对齐 GraphicsShapeObjectDriver::createObject）：预先三角化后关闭
+// 自动三角化，并打开「按三角化计算等值线」，使「着色带边」的边线连续（参考 Mayo）。
 GraphicsObjectPtr createShapeObject(const TopoDS_Shape& shape)
 {
     auto object = makeOccHandle<AIS_Shape>(shape);
@@ -79,6 +107,8 @@ GraphicsObjectPtr createShapeObject(const TopoDS_Shape& shape)
     object->Attributes()->SetFaceBoundaryDraw(true);
     object->Attributes()->SetFaceBoundaryAspect(
         new Prs3d_LineAspect(Quantity_NOC_BLACK, Aspect_TOL_SOLID, 1.0));
+    object->Attributes()->SetAutoTriangulation(false);
+    object->Attributes()->SetIsoOnTriangulation(true);
     return object;
 }
 
@@ -126,9 +156,35 @@ std::vector<GraphicsObjectPtr> createDisplayObjects(const OccHandle<TDocStd_Docu
         object->Attributes()->SetFaceBoundaryDraw(true);
         object->Attributes()->SetFaceBoundaryAspect(
             new Prs3d_LineAspect(Quantity_NOC_BLACK, Aspect_TOL_SOLID, 1.0));
+        // 对齐 Mayo：关闭自动三角化、按三角化计算等值线（形状已在导入线程预三角化）。
+        object->Attributes()->SetAutoTriangulation(false);
+        object->Attributes()->SetIsoOnTriangulation(true);
         result.push_back(object);
     }
     return result;
+}
+
+void meshShape(const TopoDS_Shape& shape)
+{
+    meshOneShape(shape);
+}
+
+void meshDocument(const OccHandle<TDocStd_Document>& document)
+{
+    if (document.IsNull())
+        return;
+
+    const OccHandle<XCAFDoc_ShapeTool> shapeTool = XCAFDoc_DocumentTool::ShapeTool(document->Main());
+    if (shapeTool.IsNull())
+        return;
+
+    TDF_LabelSequence freeShapes;
+    shapeTool->GetFreeShapes(freeShapes);
+    for (const TDF_Label& label : freeShapes) {
+        if (!XCAFDoc_ShapeTool::IsShape(label))
+            continue;
+        meshOneShape(XCAFDoc_ShapeTool::GetShape(label));
+    }
 }
 
 void applyDisplayMode(const GraphicsObjectPtr& object, DisplayMode mode)
@@ -191,6 +247,16 @@ void applyDisplayMode(const GraphicsObjectPtr& object, DisplayMode mode)
         if (object->Attributes()->FaceBoundaryDraw() != showFaceBounds) {
             object->Attributes()->SetFaceBoundaryDraw(showFaceBounds);
             object->Redisplay(true);
+        }
+        // 「着色带边」的边线必须是连续实线：显式把面边界线型重设为 SOLID，
+        // 防止对象边界线型被其它路径（XCAF 样式 / 历史 HLR 表示等）改成虚线。
+        if (showFaceBounds) {
+            const auto& fbAspect = object->Attributes()->FaceBoundaryAspect();
+            if (fbAspect.IsNull() || fbAspect->Aspect()->Type() != Aspect_TOL_SOLID) {
+                object->Attributes()->SetFaceBoundaryAspect(
+                    new Prs3d_LineAspect(Quantity_NOC_BLACK, Aspect_TOL_SOLID, 1.0));
+                object->Redisplay(true);
+            }
         }
     }
 }

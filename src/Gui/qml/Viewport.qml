@@ -4,7 +4,7 @@ import CAMX.Theme 1.0
 // 中央 3D 视口：OCCT 可用时加载原生 AIS 视口，否则退回 Canvas 占位
 Rectangle {
     id: viewport
-    color: "#181b20"
+    color: Theme.panelBg
 
     // 鼠标指向的 3D 坐标（底层 GraphicsViewport 悬停拾取后经 QueuedConnection 写回），
     // 经 Loader 透传给状态栏。空串表示鼠标未命中模型。
@@ -128,16 +128,12 @@ Rectangle {
                 var w = canvas.width
                 var h = canvas.height
 
-                // 深色渐变背景
-                var g = ctx.createLinearGradient(0, 0, 0, h)
-                g.addColorStop(0.0, "#2b3038")
-                g.addColorStop(0.6, "#20242a")
-                g.addColorStop(1.0, "#181b20")
-                ctx.fillStyle = g
+                // 淡灰背景（与功能区一致）
+                ctx.fillStyle = "#f3f3f3"
                 ctx.fillRect(0, 0, w, h)
 
                 // 网格
-                ctx.strokeStyle = "#3a4048"
+                ctx.strokeStyle = "#e0e0e0"
                 ctx.lineWidth = 1
                 ctx.beginPath()
                 var step = 40
@@ -155,13 +151,13 @@ Rectangle {
                 ctx.beginPath(); ctx.moveTo(cx, cy - 40); ctx.lineTo(cx, cy + 40); ctx.stroke()
 
                 // 标签
-                ctx.fillStyle = "#ffffff"
+                ctx.fillStyle = "#505050"
                 ctx.font = "12px 'Microsoft YaHei', sans-serif"
                 ctx.fillText("X", cx + 44, cy + 4)
                 ctx.fillText("Y", cx + 4, cy - 44)
 
                 // 底部提示
-                ctx.fillStyle = "#888888"
+                ctx.fillStyle = "#8a8a8a"
                 ctx.font = "11px 'Microsoft YaHei', sans-serif"
                 ctx.fillText("视口占位 — 后续接入 OCCT AIS 渲染", 12, h - 12)
             }

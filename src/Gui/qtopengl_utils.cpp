@@ -14,6 +14,8 @@
 #include <OpenGl_GlCore20.hxx>
 #include <OpenGl_View.hxx>
 
+#include <Graphic3d_PolygonOffset.hxx>
+
 #include <cstring>
 
 namespace Mayo::QtOpenGlUtils {
@@ -203,6 +205,21 @@ void resetGlStateBeforeOcct(const OccHandle<V3d_View>& view)
         glCtx->core11fwd->glDisable(GL_ALPHA_TEST);
         glCtx->core11fwd->glDisable(GL_TEXTURE_2D);
     }
+
+    // Qt Quick 场景图会在帧间改动 GL_POLYGON_OFFSET_* 状态，而 OCCT 对 polygon offset 有缓存
+    // （OpenGl_Context::SetPolygonOffset 只在值变化时才发 glEnable/glDisable/glPolygonOffset）。
+    // 缓存与真实 GL 状态不一致时，「着色带边」的面边界线会失去 depth bias，与面发生 z-fighting，
+    // 表现为断续的「虚线」。这里把 GL 状态与 OCCT 缓存都复位为「关闭」，强制 OCCT 下一帧重新应用
+    // 正确的偏移值。
+    glCtx->core11fwd->glDisable(GL_POLYGON_OFFSET_FILL);
+    glCtx->core11fwd->glDisable(GL_POLYGON_OFFSET_LINE);
+    glCtx->core11fwd->glDisable(GL_POLYGON_OFFSET_POINT);
+    glCtx->core11fwd->glPolygonOffset(0.0f, 0.0f);
+    Graphic3d_PolygonOffset offOffset;
+    offOffset.Mode = Aspect_POM_Off;
+    offOffset.Factor = 0.0f;
+    offOffset.Units = 0.0f;
+    glCtx->SetPolygonOffset(offOffset);   // 复位 OCCT 的 polygon offset 缓存，让下一帧重新应用
 }
 
 void resetGlStateAfterOcct(const OccHandle<V3d_View>& view)

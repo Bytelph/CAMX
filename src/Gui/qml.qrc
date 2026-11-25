@@ -27,5 +27,9 @@
         <file>qml/PickModeSelector.qml</file>
         <file>qml/DisplayToggles.qml</file>
         <file>qml/StatusBar.qml</file>
+        <file>qml/ToolLibraryDialog.qml</file>
+        <file>qml/ToolGlyph.qml</file>
+        <file>qml/DialogButton.qml</file>
+        <file>qml/FormRow.qml</file>
     </qresource>
 </RCC>

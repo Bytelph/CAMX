@@ -14,7 +14,6 @@
 #include <AIS_Shape.hxx>
 #include <AIS_Trihedron.hxx>
 #include <AIS_ViewCube.hxx>
-#include <Aspect_GradientFillMethod.hxx>
 #include <Aspect_GridDrawMode.hxx>
 #include <Aspect_GridType.hxx>
 #include <Aspect_NeutralWindow.hxx>
@@ -58,6 +57,7 @@
 #include <QEasingCurve>
 #include <QFileInfo>
 #include <QHoverEvent>
+#include <QImage>
 #include <QMetaObject>
 #include <QMouseEvent>
 #include <QOpenGLContext>
@@ -235,10 +235,28 @@ public:
             this->advanceCameraAnimation();
         m_view->Redraw();
 
+        // TEMP 诊断：导入模型后截取一帧，用于定位「着色带边」边线虚线问题。
+        // camx_fbo_dump.png = OCCT 实际渲染进 FBO 的画面（即 Qt Quick 采样显示的纹理）；
+        // camx_occt_dump.png = 同一 GL 上下文下 OCCT 自己的离屏渲染，用于对比二者是否一致。
+        if (m_debugDumpFrame) {
+            m_debugDumpFrame = false;
+            if (m_fbo) {
+                const QImage img = m_fbo->toImage();
+                img.save(QStringLiteral("C:/Users/BYTELPH/Desktop/CAMX/build/camx_fbo_dump.png"));
+            }
+            m_debugDumpOcct = true;
+        }
+
         Mayo::QtOpenGlUtils::resetGlStateAfterOcct(m_view);
 
         if (m_fbo)
             m_fbo->release();
+
+        if (m_debugDumpOcct) {
+            m_debugDumpOcct = false;
+            if (!m_view.IsNull())
+                m_view->Dump("C:/Users/BYTELPH/Desktop/CAMX/build/camx_occt_dump.png");
+        }
 
         m_renderedOnce = true;
     }
@@ -262,14 +280,11 @@ private:
             return;
         }
 
-        // 3D 视口背景：由上至下逐渐变淡、接近白色的纵向渐变。
-        // 顶部颜色与 ribbon 第三行底部一致（#e5ebf2），向下渐变到近白，避免与上方渐变在衔接处出现断层。
-        // OCCT 把背景色当作线性值、显示时再做 sRGB 编码（会变亮），故这里按 sRGB→线性反算。
-        m_view->SetBgGradientColors(
-            Quantity_Color(0.784f, 0.831f, 0.888f, Quantity_TOC_RGB),  // 顶部 #e5ebf2（衔接 ribbon 底部）
-            Quantity_Color(0.956f, 0.965f, 0.982f, Quantity_TOC_RGB),  // 底部 #fafbfd（接近白色）
-            Aspect_GFM_VER,
-            false);
+        // 3D 视口背景：淡灰色（#f3f3f3），与功能区第二/三行的背景一致。
+        // OCCT 把背景色当作线性值、显示时再做 sRGB 编码（会变亮），故这里按 sRGB→线性反算：
+        // sRGB #f3 (243/255=0.9529) → 线性 0.8963。
+        m_view->SetBackgroundColor(
+            Quantity_Color(0.8963f, 0.8963f, 0.8963f, Quantity_TOC_RGB));
 
         // 右上角视图立方体 + 坐标轴（参考 Mayo，使用 OCCT AIS_ViewCube）
         this->addViewCube();
@@ -536,6 +551,18 @@ private:
                 else {
                     shape = Mayo::ShapeReader::read(utf8Path, format, &error, reportProgress);
                 }
+
+                // 预三角化（对齐 Mayo）：显示对象关闭自动三角化、按三角化计算等值线，
+                // 这里在后台线程先算好三角剖分，避免渲染线程阻塞，并让「着色带边」的
+                // 边线/轮廓线由连续三角化计算而非原始曲面上的破碎线段（虚线）。
+                // 网格型（STL/OBJ/PLY）自带三角化，跳过（其面没有底层曲面，无需也不应重算）。
+                if (document.IsNull()) {
+                    if (!shape.IsNull() && !Mayo::isMeshShape(shape))
+                        Mayo::meshShape(shape);
+                }
+                else {
+                    Mayo::meshDocument(document);
+                }
             }
             catch (const std::exception& e) {
                 error = e.what();
@@ -599,6 +626,7 @@ private:
             this->setDocument(document, shape);
         else
             this->setShape(shape);
+        m_debugDumpFrame = true;   // TEMP 诊断：导入后下一帧截取渲染结果
         this->reportImportStatus(QStringLiteral("已导入：%1").arg(fileName));
     }
 
@@ -1054,6 +1082,8 @@ private:
     bool m_pickDragRotating = false;    // 拾取模式下左键拖动是否已超过阈值进入旋转
     QPointF m_pickPressPos;             // 拾取模式下左键按下位置（逻辑像素），用于点击/拖动判定
     bool m_renderedOnce = false;
+    bool m_debugDumpFrame = false;   // TEMP 诊断：导入模型后截取一帧 FBO 渲染
+    bool m_debugDumpOcct = false;    // TEMP 诊断：FBO 截图后再补一张 OCCT 离屏渲染用于对比
     int m_pickMode = int(GraphicsViewport::PickFace);   // 当前拾取模式（0..4，对应 PickMode 枚举，默认面）
 
     // 视图切换相机动画（Mayo 式平滑过渡）：起止相机在渲染线程计算，进度由 GUI 线程动画驱动。

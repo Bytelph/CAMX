@@ -9,19 +9,23 @@ Rectangle {
 
     property string icon: ""
     property string tooltip: ""
+    // 标题栏（蓝底）风格：图标为白色、悬停背景为更亮的蓝（用于第一行标题栏）
+    property bool titleBarStyle: false
     signal clicked()
 
     width: 34
     height: 34
     radius: 4
-    color: mouse.containsMouse ? Theme.bgElevated : "transparent"
+    color: mouse.containsMouse ? (titleBarStyle ? Theme.titleBarHover : Theme.bgElevated) : "transparent"
     Behavior on color { ColorAnimation { duration: 120 } }
 
     ToolIcon {
         anchors.centerIn: parent
         name: btn.icon
         size: 18
-        color: mouse.containsMouse ? Theme.textBright : Theme.textDim
+        color: btn.titleBarStyle
+               ? Theme.titleBarText
+               : (mouse.containsMouse ? Theme.textBright : Theme.textDim)
     }
 
     ToolTip.visible: mouse.containsMouse && btn.tooltip !== ""

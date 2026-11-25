@@ -39,6 +39,15 @@ GraphicsObjectPtr createDisplayObject(const TopoDS_Shape& shape);
 // 文档为空 / 无几何时返回空序列。返回的对象需加入 AIS 场景后显示。
 std::vector<GraphicsObjectPtr> createDisplayObjects(const OccHandle<TDocStd_Document>& document);
 
+// 预三角化 shape（对齐 Mayo：显示对象创建前先算好三角剖分，再配合
+// SetAutoTriangulation(false) + SetIsoOnTriangulation(true) 使用）。缺陷大小按
+// 包围盒对角线的 1‰（与导出路径的 triangulateShape 一致），保证「着色带边」的
+// 边线/轮廓线由连续三角化计算，而非在原始曲面上算出的破碎线段（表现为虚线）。
+void meshShape(const TopoDS_Shape& shape);
+
+// 预三角化 XCAF 文档中的所有顶层自由形状（供 STEP/IGES 的 XCAFPrs_AISObject 显示）。
+void meshDocument(const OccHandle<TDocStd_Document>& document);
+
 // 应用显示模式（对象必须已由 createDisplayObject 创建并加入 AIS 场景）。
 // 模式与对象类型不匹配时为空操作（例如对 AIS_Shape 应用 MeshShaded）。
 void applyDisplayMode(const GraphicsObjectPtr& object, DisplayMode mode);

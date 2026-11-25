@@ -8,9 +8,14 @@ import CAMX.NotificationManager 1.0
 // 每个窗口拥有独立的 ribbon / 3D 视口 / 状态栏 / 项目树与无边框窗口控制。
 ApplicationWindow {
     id: root
-    // 默认窗口大小为当前屏幕的 75%（每次新建窗口均按此尺寸打开）
+    // 默认窗口大小为当前屏幕的 75%（每次新建窗口均按此尺寸打开）。
+    // Qt 6 中 Screen.width/height 已是逻辑像素（DIP），与 Window.width/height 同一坐标系，
+    // 无需再除以 devicePixelRatio（否则高 DPI 缩放下窗口会缩成屏幕的 50%）。
     width: Math.round(Screen.width * 0.75)
     height: Math.round(Screen.height * 0.75)
+    // 居屏幕显示，避免窗口落到屏幕外
+    x: Math.round((Screen.width - width) / 2)
+    y: Math.round((Screen.height - height) / 2)
     title: "CAMX — 计算机辅助制造"
     color: Theme.bg
 
@@ -29,6 +34,11 @@ ApplicationWindow {
     // 「导出模型」：把保存路径转发给中央 3D 视口写文件
     function exportFile(url) {
         mainViewport.exportFile(url)
+    }
+
+    // 「刀具库」：打开模态刀具库对话框（Ribbon 的「文件/配置」或「配置」页按钮调用）
+    function openToolLibrary() {
+        toolLibraryDialog.open()
     }
 
     // 主内容区：用显式锚点纵向堆叠（而非 ColumnLayout）。中央视口区直接锚在 ribbon 底部，
@@ -117,6 +127,14 @@ ApplicationWindow {
             anchors.bottomMargin: 12
             width: 260
         }
+    }
+
+    // —— 刀具库弹窗：独立无边框浮动窗口，父窗口为主文档窗口（窗口级模态）——
+    ToolLibraryDialog {
+        id: toolLibraryDialog
+        ownerWindow: root
+        transientParent: root
+        modality: Qt.WindowModal
     }
 
     // —— 四周缩放把手（无边框窗口手动提供边缘拖拽缩放）——

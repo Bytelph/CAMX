@@ -5,12 +5,15 @@ import CAMX.Theme 1.0
 Rectangle {
     id: btn
     property string type: "min"   // min | max | restore | close
+    // 标题栏（蓝底）风格：图标为白色、悬停背景为更亮的蓝（用于第一行标题栏）
+    property bool titleBarStyle: false
     signal clicked()
 
     width: 46
     height: 40
     color: mouse.containsMouse
-           ? (type === "close" ? Theme.closeHover : Theme.bgElevated)
+           ? (type === "close" ? Theme.closeHover
+                               : (titleBarStyle ? Theme.titleBarHover : Theme.bgElevated))
            : "transparent"
 
     Canvas {
@@ -18,7 +21,9 @@ Rectangle {
         anchors.centerIn: parent
         width: 12
         height: 12
-        property color fg: (btn.type === "close" && mouse.containsMouse) ? "#ffffff" : Theme.textDim
+        property color fg: (btn.type === "close" && mouse.containsMouse)
+                           ? "#ffffff"
+                           : (btn.titleBarStyle ? Theme.titleBarText : Theme.textDim)
         onFgChanged: requestPaint()
 
         onPaint: {
